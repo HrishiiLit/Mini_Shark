@@ -15,10 +15,10 @@ dependencies = [
 ]
 
 [tool.ruff]
-select = ["E","F","W","C","N","B","I","R","RUF","PQA","SIM","TID","UP"]
-fixable = ["ALL"]
 
 [tool.ruff.lint]
+select = ["E","F","W","C","N","B","I","R","RUF","SIM","TID","UP"]
+fixable = ["ALL"]
 exclude = [".github/workflows/"]
 
 
