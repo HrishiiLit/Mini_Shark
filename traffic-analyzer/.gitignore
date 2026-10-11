@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.env/
+venv/
+env/
+.build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# PCAP files (test fixtures are tracked, but generated ones aren't)
+*.pcap
+*.pcapng
+
+# SQLite
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# UV/project filters
+.pytest_cache/
+.hypothesis/
