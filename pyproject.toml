@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mini-shark"
+version = "0.1.0"
+description = "Network Traffic Analyzer and Protocol Analysis System"
+requires-python = ">=3.11"
+dependencies = [
+    "dpkt>=2.0",
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "sqlalchemy>=2.0",
+]
+
+[tool.ruff]
+line-length = 88
+select = "E,F,W,C,N,B,I"
+fixable = ["all"]
+
+[tool.ruff.lint]
+exclude = ".github/workflows/"
+
+[tool.ruff.format]
+line-length = 88
+
+[tool.black]
+line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["traffic-analyzer/tests"]
+python_paths = ["traffic-analyzer"]
