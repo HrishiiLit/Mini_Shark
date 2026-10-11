@@ -15,7 +15,6 @@ dependencies = [
 ]
 
 [tool.ruff]
-line-length = 88
 select = ["E","F","W","C","N","B","I","R","RUF","PQA","SIM","TID","UP"]
 fixable = ["ALL"]
 
