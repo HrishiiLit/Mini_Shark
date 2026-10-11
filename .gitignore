@@ -1,0 +1,33 @@
+# Global ignore rules for the repository
+
+# Python virtual environments
+.venv/
+venv/
+.env/
+
+# Byte‑compiled / cache files
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+build/
+*.egg-info/
+.dist/
+
+# IDE / editor artefacts
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS artefacts
+.DS_Store
+
+# Executable binaries
+*.exe
+*.out
+*.dll
+*.so
+
+# Node / npm artefacts (if frontend uses npm)
+node_modules/
