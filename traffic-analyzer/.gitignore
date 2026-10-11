@@ -1,12 +1,11 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.pyd
 *.egg-info/
 .env/
 venv/
-env/
+.venv/
 .build/
 
 # IDE
@@ -26,6 +25,10 @@ env/
 # Logs
 *.log
 
-# UV/project filters
-.pytest_cache/
-.hypothesis/
+# Node / npm artifacts (if frontend uses npm)
+node_modules/
+ dist/
+ build/
+
+# Misc
+.DS_Store

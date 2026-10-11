@@ -6,12 +6,12 @@ These dataclasses define the contract between the four engines.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Any
+from typing import Any
 
 
 @dataclass(frozen=True)
 class Packet:
-    """Engine E1 output – raw packet information.
+    """Engine E1 - raw packet information.
 
     index: sequential number starting at 0
     timestamp: epoch seconds as float (or int nanoseconds)
@@ -41,33 +41,33 @@ class Layer:
 
 @dataclass(frozen=True)
 class DecodedPacket:
-    """Engine E2 output – hierarchical protocol representation.
+    """Engine E2 - hierarchical protocol representation.
 
     packet_index: original Packet.index
     layers: ordered list of Layer objects from lowest (link) to highest (application)
     """
 
     packet_index: int
-    layers: List[Layer] = field(default_factory=list)
+    layers: list[Layer] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class Flow:
-    """Engine E3 output – grouping of packets into a flow.
+    """Engine E3 - grouping of packets into a flow.
 
     flow_id: unique identifier for the flow (e.g. UUID or simple int)
     five_tuple: tuple(src_ip, dst_ip, src_port, dst_port, protocol)
     packet_indices: list of packet indexes belonging to this flow
-    packet_count: int – derived from len(packet_indices)
-    byte_count: int – sum of packet lengths
-    start_ts: float – timestamp of first packet in flow
-    end_ts: float – timestamp of last packet in flow
-    duration: float – end_ts - start_ts
+    packet_count: int - derived from len(packet_indices)
+    byte_count: int - sum of packet lengths
+    start_ts: float - timestamp of first packet in flow
+    end_ts: float - timestamp of last packet in flow
+    duration: float - end_ts - start_ts
     """
 
     flow_id: int
     five_tuple: tuple[str, str, int, int, str]
-    packet_indices: List[int] = field(default_factory=list)
+    packet_indices: list[int] = field(default_factory=list)
     packet_count: int = 0
     byte_count: int = 0
     start_ts: float | None = None
