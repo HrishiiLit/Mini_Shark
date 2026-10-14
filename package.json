@@ -4,7 +4,7 @@
   "description": "Network Traffic Analyzer – dev environment",
   "scripts": {
     "install": "python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt",
-    "dev": "uvicorn traffic-analyzer.backend.main:app --reload"
+    "dev": "uvicorn backend.main:app --reload"
   },
   "author": "Hrishikesh",
   "license": "MIT"
