@@ -38,6 +38,6 @@ Typical types:
 
 ## Testing
 
-- Place test fixtures under `traffic-analyzer/tests/data/`.
-- Expected outputs live in `traffic-analyzer/tests/expected/`.
+- Place test fixtures under `tests/data/`.
+- Expected outputs live in `tests/expected/`.
 - Run `pytest` from the repository root.

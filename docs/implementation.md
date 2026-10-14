@@ -27,7 +27,7 @@ The handbook does not fix a technology stack, so this plan assumes the following
 ### Proposed repository layout
 
 ```
-traffic-analyzer/
+mini-shark/
 ├── backend/
 │   ├── e1_capture/        # E1: PCAP/PCAPNG loading, packet records
 │   ├── e2_dissection/     # E2: protocol identification, header parsing, tree
