@@ -19,4 +19,4 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 # Run the FastAPI development server
-uvicorn traffic-analyzer.backend.main:app --reload
+uvicorn backend.main:app --reload
