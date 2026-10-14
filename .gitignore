@@ -8,11 +8,26 @@ venv/
 # Byte‑compiled / cache files
 __pycache__/
 *.py[cod]
+*.pyd
 
 # Distribution / packaging
 build/
+dist/
 *.egg-info/
 .dist/
+.build/
+.ruff_cache/
+
+# SQLite databases
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# PCAP captures (tracked test fixtures need `git add -f`)
+*.pcap
+*.pcapng
 
 # IDE / editor artefacts
 .vscode/
@@ -28,6 +43,8 @@ build/
 *.out
 *.dll
 *.so
+
+.pytest_cache/
 
 # Node / npm artefacts (if frontend uses npm)
 node_modules/
