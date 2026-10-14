@@ -26,5 +26,5 @@ exclude = [".github/workflows/"]
 line-length = 88
 
 [tool.pytest.ini_options]
-testpaths = ["traffic-analyzer/tests"]
-python_paths = ["traffic-analyzer"]
+testpaths = ["tests"]
+pythonpath = ["."]
