@@ -9,28 +9,30 @@ FastAPI HTTP API.
 
 ## Where the project stands
 
-**Phase 1 (foundation, contracts, test data) is complete. Phase 2 (E1 + E2)
-has not started yet.**
+**Phase 1 (foundation, contracts, test data) is complete. Starter
+implementations of all four engines and the HTTP routes now live under
+`backend/`; protocol coverage, test fixtures and expected-output data for
+Phases 2–4 still have to be filled in.**
 
 | Area | State |
 | --- | --- |
 | Data contract — `backend/models.py` | Done: frozen dataclasses `Packet`, `Layer`, `DecodedPacket`, `Flow` |
 | Engine interfaces — `backend/interfaces.py` | Done: abstract base classes `EngineE1`–`EngineE4` |
-| HTTP service — `backend/main.py` | Skeleton: FastAPI app with `GET /health` only |
-| Engine implementations — `backend/e1_capture`, `e2_dissection`, `e3_flows`, `e4_query`, `api` | Empty placeholders, no logic yet |
-| Test fixtures — `tests/data/` | Done: 10 captures (tcp, udp, dns, http, icmp, arp, pcapng, empty, corrupt, 100 MB) |
+| HTTP service — `backend/main.py` | FastAPI app: upload, packets, protocol tree, flows, statistics, filter/query |
+| Engine implementations — `backend/e1_capture`, `e2_dissection`, `e3_flows`, `e4_query`, `api` | Starter code for all four engines plus thin routers (see `backend/pipeline.py`) |
+| Test fixtures — `tests/data/` | Empty on disk (fixtures were removed in an earlier commit); unit tests build frames in code (`tests/unit/helpers.py`) |
 | Expected outputs — `tests/expected/` | Placeholders (`{}`); real values are generated with tshark in Phase 2 |
-| Test cases | None yet — `pytest` collects nothing, which is expected at this stage |
-| SQLite storage, API routes, frontend | Not started; drafts live in `docs/api_routes.md` |
+| Test cases | 45 unit tests in `tests/unit/` covering E1–E4, the pipeline and route registration |
+| SQLite storage, API routes, frontend | SQLite storage and API routes: starter done. Frontend: not started (`docs/api_routes.md`) |
 
 ## The four engines
 
 | Engine | Responsibility | Owner | Status |
 | --- | --- | --- | --- |
-| E1 | Packet & Frame Processing — PCAP/PCAPNG loading, packet records | Janki | Not started |
-| E2 | Protocol Dissection — protocol identification, header parsing, tree | Chhavi Mishra | Not started |
-| E3 | Flow & Traffic Analysis — five-tuple flows, statistics | Hrishikesh | Not started |
-| E4 | Traffic Query & Reporting — storage, filter/query engine | Vaibhav Kumar | Not started |
+| E1 | Packet & Frame Processing — PCAP/PCAPNG loading, packet records | Janki | Starter: streaming PCAP (strict length checks) + PCAPNG via dpkt |
+| E2 | Protocol Dissection — protocol identification, header parsing, tree | Chhavi Mishra | Starter: Ethernet/VLAN/ARP/IPv4/IPv6/TCP/UDP/ICMP/DNS/HTTP registry |
+| E3 | Flow & Traffic Analysis — five-tuple flows, statistics | Hrishikesh | Starter: normalised five-tuple, ungrouped bucket, protocol statistics |
+| E4 | Traffic Query & Reporting — storage, filter/query engine | Vaibhav Kumar | Starter: SQLite repository + parameterised filter language |
 
 Engines only talk to each other through the data contract, so each one can be
 built and tested in isolation against the fixtures in `tests/data/`.
@@ -40,21 +42,24 @@ built and tested in isolation against the fixtures in `tests/data/`.
 ```
 Mini_Shark/
 ├── backend/
-│   ├── main.py          # FastAPI entrypoint (GET /health)
+│   ├── main.py          # FastAPI entrypoint (routers + GET /health)
 │   ├── models.py        # shared dataclasses: Packet, Layer, DecodedPacket, Flow
 │   ├── interfaces.py    # abstract EngineE1–EngineE4
-│   ├── e1_capture/      # E1 (planned)
-│   ├── e2_dissection/   # E2 (planned)
-│   ├── e3_flows/        # E3 (planned)
-│   ├── e4_query/        # E4 (planned)
-│   └── api/             # HTTP routes (planned)
+│   ├── errors.py        # typed engine errors (CorruptCaptureError, FilterSyntaxError, ...)
+│   ├── pipeline.py      # E1 → E2 → E3 → E4 in one call
+│   ├── e1_capture/      # E1: PCAP/PCAPNG loading
+│   ├── e2_dissection/   # E2: dissector registry + protocol dissectors
+│   ├── e3_flows/        # E3: five-tuple grouping + statistics
+│   ├── e4_query/        # E4: SQLite storage + filter compiler
+│   └── api/             # HTTP routes (thin: validate, call an engine, serialise)
 ├── tests/
+│   ├── unit/            # unit tests for every engine (+ helpers.py byte builders)
 │   ├── data/            # controlled PCAP/PCAPNG fixtures
 │   └── expected/        # expected analysis outputs
 ├── docs/                # this README, plan, contract, API draft, contributing guide
 ├── .github/workflows/   # CI: pre-commit (ruff, black) + pytest
 ├── pyproject.toml       # project metadata, ruff/black/pytest config
-├── requirements.txt     # dpkt, fastapi, uvicorn, sqlalchemy
+├── requirements.txt     # dpkt, fastapi, uvicorn, sqlalchemy, python-multipart
 └── run.sh               # create venv, install deps, start the dev server
 ```
 
@@ -87,7 +92,7 @@ curl http://127.0.0.1:8000/health     # → {"status":"ok"}
 ### Quality checks
 
 ```bash
-pytest                    # no test cases yet; exits 5 ("no tests collected")
+pytest                    # unit tests in tests/unit
 ruff check .              # lint
 black .                   # format
 pre-commit run --all-files
