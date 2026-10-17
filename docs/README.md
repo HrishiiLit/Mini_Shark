@@ -29,9 +29,9 @@ Phases 2–4 still have to be filled in.**
 
 | Engine | Responsibility | Owner | Status |
 | --- | --- | --- | --- |
-| E1 | Packet & Frame Processing — PCAP/PCAPNG loading, packet records | Janki | Starter: streaming PCAP (strict length checks) + PCAPNG via dpkt |
+| E1 | Packet & Frame Processing — PCAP/PCAPNG loading, packet records | M Janaki | Starter: streaming PCAP (strict length checks) + PCAPNG via dpkt |
 | E2 | Protocol Dissection — protocol identification, header parsing, tree | Chhavi Mishra | Starter: Ethernet/VLAN/ARP/IPv4/IPv6/TCP/UDP/ICMP/DNS/HTTP registry |
-| E3 | Flow & Traffic Analysis — five-tuple flows, statistics | Hrishikesh | Starter: normalised five-tuple, ungrouped bucket, protocol statistics |
+| E3 | Flow & Traffic Analysis — five-tuple flows, statistics | Hrishikesh Patil | Starter: normalised five-tuple, ungrouped bucket, protocol statistics |
 | E4 | Traffic Query & Reporting — storage, filter/query engine | Vaibhav Kumar | Starter: SQLite repository + parameterised filter language |
 
 Engines only talk to each other through the data contract, so each one can be
