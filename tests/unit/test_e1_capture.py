@@ -109,3 +109,31 @@ def test_nanosecond_pcap_timestamp_resolution(tmp_path):
     assert len(packets) == 1
     assert packets[0].timestamp == pytest.approx(100.5)
 
+
+def test_loads_real_data_fixtures():
+    from pathlib import Path
+
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+    loader = CaptureLoader()
+
+    # Valid captures
+    for name, expected_count in [
+        ("sample_tcp.pcap", 3),
+        ("sample_udp.pcap", 3),
+        ("sample_arp.pcap", 2),
+        ("sample_dns.pcap", 1),
+        ("sample_http.pcap", 1),
+        ("sample_icmp.pcap", 1),
+        ("sample_pcapng.pcapng", 2),
+        ("empty.pcap", 0),
+    ]:
+        fixture = data_dir / name
+        assert fixture.exists(), f"Missing fixture {name}"
+        packets = loader.load_capture(str(fixture))
+        assert len(packets) == expected_count
+
+    # Corrupted fixture
+    with pytest.raises(CorruptCaptureError):
+        loader.load_capture(str(data_dir / "corrupt.pcap"))
+
+

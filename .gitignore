@@ -25,9 +25,11 @@ dist/
 # Logs
 *.log
 
-# PCAP captures (tracked test fixtures need `git add -f`)
+# PCAP captures (tracked test fixtures in tests/data/ are preserved)
 *.pcap
 *.pcapng
+!tests/data/*.pcap
+!tests/data/*.pcapng
 
 # IDE / editor artefacts
 .vscode/
