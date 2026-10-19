@@ -96,12 +96,16 @@ def _iter_pcap(
             raise CorruptCaptureError(
                 f"{path}: truncated record header at packet {index}"
             )
-        seconds, fraction, captured_len, _original_len = struct.unpack(
+        seconds, fraction, captured_len, original_len = struct.unpack(
             f"{endian}IIII", record
         )
         if captured_len > _MAX_RECORD_LEN:
             raise CorruptCaptureError(
                 f"{path}: implausible record length {captured_len} at packet {index}"
+            )
+        if captured_len > original_len:
+            raise CorruptCaptureError(
+                f"{path}: captured length {captured_len} exceeds wire length {original_len} at packet {index}"
             )
         buffer = handle.read(captured_len)
         if len(buffer) < captured_len:

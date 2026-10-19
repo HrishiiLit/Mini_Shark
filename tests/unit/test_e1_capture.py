@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import struct
 
 import dpkt
 import pytest
@@ -84,3 +85,27 @@ def test_loads_pcapng(tmp_path):
 
     assert len(packets) == len(frames)
     assert packets[1].raw_bytes == frames[1]
+
+
+def test_captured_len_exceeding_wire_len_raises(tmp_path):
+    global_hdr = struct.pack("<IHHIIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1)
+    record_hdr = struct.pack("<IIII", 1000, 0, 100, 50)  # caplen=100 > wirelen=50
+    path = tmp_path / "bad_len.pcap"
+    path.write_bytes(global_hdr + record_hdr + b"X" * 100)
+
+    with pytest.raises(CorruptCaptureError) as exc_info:
+        CaptureLoader().load_capture(str(path))
+    assert "exceeds wire length" in str(exc_info.value)
+
+
+def test_nanosecond_pcap_timestamp_resolution(tmp_path):
+    frame = tcp_frame()
+    global_hdr = b"\x4d\x3c\xb2\xa1" + struct.pack("<HHIIII", 2, 4, 0, 0, 65535, 1)
+    record_hdr = struct.pack("<IIII", 100, 500_000_000, len(frame), len(frame))
+    path = tmp_path / "nanosec.pcap"
+    path.write_bytes(global_hdr + record_hdr + frame)
+
+    packets = CaptureLoader().load_capture(str(path))
+    assert len(packets) == 1
+    assert packets[0].timestamp == pytest.approx(100.5)
+
