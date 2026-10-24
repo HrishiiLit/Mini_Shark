@@ -1,335 +1,447 @@
-# Implementation Plan — Network Traffic Analyzer and Protocol Analysis System
+# Implementation Plan — Distributed Multi-Point Latency & Packet Loss Tracing System
 
-**Team 07** · Guide: Pooja Shettar · Based on the S1 Functional Requirements Engineering handbook (06 Oct 2026)
+**Team 07** · Guide: Prof. Pooja Shettar · Mini-Project 23ECNP301
+
+This plan replaces the earlier single-host PCAP-analysis roadmap. It tracks the
+architecture in the final project presentation: two in-band probes, compact
+telemetry over TCP, central correlation, deterministic diagnostics, and a live
+dashboard. The offline PCAP/PCAPNG pipeline that already exists in the
+repository is **retained as a testing/replay mode** and is not redesigned
+here.
+
+> **Evidence convention.** Sections labelled *planned* describe work that has
+> **not** been performed. "Completion evidence" entries are empty until real
+> artifacts (commits, test runs, benchmarks) exist; nothing in this document
+> asserts completed work beyond Phase 1's offline foundation, which is
+> verifiable in the repository (47 passing unit tests, tag `v0.1-phase1`).
+
+## Engine ownership
 
 | Engine | Name | Owner |
 | --- | --- | --- |
-| E1 | Packet & Frame Processing Engine | Janki |
-| E2 | Protocol Dissection Engine | Chhavi Mishra |
-| E3 | Flow & Traffic Analysis Engine | Hrishikesh |
-| E4 | Traffic Query & Reporting Engine | Vaibhav Kumar |
+| E1 | Packet Capture & Buffering Engine | M Janaki |
+| E2 | Protocol Dissection & Invariant Fingerprinting Engine | Chhavi Mishra |
+| E3 | Multi-Point Correlation Hub | Hrishikesh Patil |
+| E4 | Diagnostics, Storage & User Interface | Vaibhav Kumar |
 
----
+## Assumptions and stack
 
-## 0. Assumptions and Suggested Stack
+The presentation implies the following stack. Change it only with team
+agreement and a note in this file.
 
-The handbook does not fix a technology stack, so this plan assumes the following. Change it if your guide has already approved something different.
-
-| Concern | Choice | Reason |
+| Concern | Choice | Reason / notes |
 | --- | --- | --- |
-| Language (backend) | Python 3.11+ | Strong packet libraries, quick to prototype |
-| Capture parsing | `dpkt` or `scapy` (PCAP + PCAPNG); `pytest` for tests | Avoids writing the file-format parser from scratch |
-| Web backend | FastAPI | Typed request validation, auto API docs |
-| Storage | SQLite (via SQLAlchemy or plain `sqlite3`) | Zero setup, satisfies the DBMS course requirement |
-| Frontend | React + Vite, or plain HTML + JS | Packet table, protocol tree, flow view, stats charts |
-| Tooling | Git, GitHub Actions (lint + tests), `ruff`, `black` | Keeps `main` always green |
+| Language | Python 3.11+ | Existing codebase; strong stdlib (`hashlib` BLAKE2b, `heapq`, `socket`, `sqlite3`) |
+| Live capture (E1) | **Open decision:** raw `AF_PACKET` sockets (Linux, root) vs. a libpcap binding | The presentation proposes raw sockets with `ioctl`/`recvfrom`. `AF_PACKET` is Linux-only and needs privileges; a libpcap binding is more portable. Decide in Phase 2 after a portability check. `dpkt` stays for offline PCAP/PCAPNG replay. |
+| Fingerprint (E2) | `hashlib.blake2b(digest_size=8)` | Stdlib, matches the presentation's 8-byte BLAKE2b design; no new dependency |
+| Telemetry transport | Raw TCP, port 9000, fixed-size records, big-endian | Persistent connection per probe; framing defined in `data_contract.md` |
+| Correlation (E3) | `dict` hash table + `heapq` min-heap | O(1) average matching; O(log K) deadline scheduling |
+| Web backend | FastAPI + uvicorn | Existing; WebSocket support built in |
+| Storage | SQLite (`sqlite3`), DB file per team decision (see open questions) | Existing E4 storage; schema extended for probes/correlation/alerts |
+| Frontend | React | Per presentation; no frontend exists yet |
+| Tooling | Git, GitHub Actions, `ruff`, `black`, `pre-commit`, `pytest` | Existing configuration retained |
 
-### Proposed repository layout
+### Shared conventions (apply to every phase)
 
-```
-mini-shark/
-├── backend/
-│   ├── e1_capture/        # E1: PCAP/PCAPNG loading, packet records
-│   ├── e2_dissection/     # E2: protocol identification, header parsing, tree
-│   ├── e3_flows/          # E3: five-tuple flows, statistics
-│   ├── e4_query/          # E4: storage, filter/query engine
-│   ├── api/               # FastAPI routers (thin, call the engines)
-│   ├── models.py          # Shared dataclasses: Packet, DecodedPacket, Flow
-│   └── main.py
-├── frontend/
-├── tests/
-│   ├── data/              # Controlled PCAPs + expected-output JSON
-│   ├── e1/ e2/ e3/ e4/ integration/
-├── docs/
-├── .github/workflows/ci.yml
-└── README.md
-```
+- Default branch: `master`. Branch naming: `feat/e3-tcp-ingestion`,
+  `fix/e1-buffer-overflow`, `test/e2-fingerprint-stability`.
+- Conventional Commits: `feat:`, `fix:`, `test:`, `docs:`, `perf:`, `refactor:`,
+  `chore:`; engine scope in parentheses, e.g. `feat(e3): ...`.
+- Every commit leaves the test suite green; feature tests ship with the
+  feature.
+- Tag a release at the end of each phase: `v0.2-phase2`, …, `v1.0`.
+- Any change to the telemetry record, fingerprint inputs, correlation logic,
+  database schema, REST contract or WebSocket message types must update the
+  matching section of `data_contract.md` / `api_routes.md` in the **same PR**
+  (see `CONTRIBUTING.md`).
 
-### Git workflow (applies to every phase)
+### Shared data contract (frozen in Phase 1)
 
-- `main` is protected: it only receives merges through pull requests with passing CI and one teammate review.
-- Branch naming: `feat/e3-flow-grouping`, `fix/e1-empty-capture`, `test/e2-dns-validation`.
-- Commit messages follow Conventional Commits: `feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `chore:`.
-- Each commit should leave the test suite green. If a commit adds a feature, the tests for it go in the same commit or the one right after.
-- Tag a release at the end of every phase: `v0.1-phase1`, `v0.2-phase2`, and so on. A tag is your rollback point.
+The engine-to-engine structures are specified in
+[`data_contract.md`](data_contract.md):
 
-### Shared data contract (agree on this in Phase 1)
-
-Because four people write four engines, the interfaces between them are the biggest risk. Fix these early:
-
-- `Packet` (output of E1): `index`, `timestamp`, `length`, `raw_bytes`
-- `DecodedPacket` (output of E2): `packet_index`, `layers: list[Layer]`, each `Layer` having `name`, `fields`, `undecoded_bytes`
-- `Flow` (output of E3): `flow_id`, `five_tuple`, `packet_indices`, `packet_count`, `byte_count`, `start_ts`, `end_ts`, `duration`
-- Ungrouped packets (no valid five-tuple, e.g. ARP) go into an explicit "ungrouped" bucket, never dropped.
+- `CapturedPacket` (E1 → E2): probe ID, sequence, timestamp, lengths, raw bytes.
+- `PacketFingerprint` (E2, internal): algorithm/version, 64-bit value, fields used.
+- `ProbeTelemetry` (E2 → E3): 24-byte serialized record — fingerprint, probe ID,
+  timestamp, flags, sequence, captured length; big-endian; TCP-framed.
+- `CorrelationRecord` (E3 → E4): matched/late/unmatched state, T₁, T₂, ΔT,
+  deadline, flags.
+- `DiagnosticAlert` (E4 internal/persisted): category, severity, evidence,
+  recommended action.
+- Offline models (`Packet`, `Layer`, `DecodedPacket`, `Flow`) are **preserved**
+  for the replay/testing mode; `Flow` is *not* the correlation record.
 
 ---
 
-## Phase 1 — Foundation, Contracts and Test Data
+## Phase 1 — Architecture, contracts and development foundation
 
-**Goal:** a working repo, CI, shared data models and a library of controlled test captures, so all four engines can be built in parallel without blocking each other.
+**Goal:** one agreed architecture, one frozen data contract, and the existing
+development foundation (CI, linting, tests) ready for four parallel engine
+streams.
 
-**Duration:** about 1 week
+**Engine:** all (contract only).
+**Dependencies:** none.
 
-| Task | Owner |
-| --- | --- |
-| Repo, branch protection, CI pipeline (lint + pytest) | Hrishikesh |
-| Shared models (`Packet`, `DecodedPacket`, `Flow`) and interface stubs | Hrishikesh + all review |
-| Collect/generate controlled PCAPs: TCP, UDP, DNS, HTTP, ICMP, ARP, one PCAPNG, one corrupt, one empty, one 100 MB file | Janki |
-| Expected-value files for the test captures (compared against Wireshark/tshark) | Chhavi |
-| Draft SQLite schema and API route list | Vaibhav |
+**Scope and ordered tasks** — *status as found in the repository:*
 
-**Planned commits (8–10)**
-
-1. `chore: initialize repository with README, .gitignore and folder structure`
-2. `chore: add pyproject, ruff/black config and pre-commit hooks`
-3. `ci: add GitHub Actions workflow running lint and pytest`
-4. `feat(models): add Packet, DecodedPacket, Layer and Flow dataclasses`
-5. `feat(interfaces): add engine interface stubs for E1–E4`
-6. `test(data): add controlled PCAP/PCAPNG fixtures (valid, corrupt, empty, large)`
-7. `test(data): add expected-output JSON generated from tshark for each fixture`
-8. `docs: add data-contract and API route draft`
-9. `docs: add CONTRIBUTING with branch and commit conventions`
-
-**Exit criteria**
-- CI runs green on an empty test suite and fails on a deliberate lint error.
-- Every engine owner has read and agreed to the data contract.
-- Fixtures include every case named in the handbook (valid, corrupt, empty, unsupported).
-
-**Tag:** `v0.1-phase1`
-
----
-
-## Phase 2 — Capture Ingestion and Protocol Dissection (E1 + E2)
-
-**Goal:** load a capture and turn each packet into a decoded protocol tree.
-**Requirements covered:** FR-01, FR-02, FR-03, NFR-03, NFR-06
-
-**Duration:** about 2 weeks (E1 and E2 run in parallel; E2 consumes E1 output through the contract)
-
-### E1 — Packet & Frame Processing (Janki)
-
-**Planned commits (6–8)**
-
-1. `feat(e1): load PCAP file and iterate packet records`
-2. `feat(e1): add PCAPNG support`
-3. `feat(e1): extract timestamp, length and raw bytes per packet`
-4. `feat(e1): detect and reject corrupt or unsupported files with typed errors`
-5. `feat(e1): handle empty capture and report zero packets`
-6. `test(e1): compare packet count and fields against tshark expected output`
-7. `perf(e1): stream packets instead of loading the whole file (large-file path)`
-
-### E2 — Protocol Dissection (Chhavi)
-
-**Planned commits (8–10)**
-
-1. `feat(e2): dissector registry and Layer data structure`
-2. `feat(e2): Ethernet header dissection`
-3. `feat(e2): IPv4 and IPv6 dissection`
-4. `feat(e2): TCP and UDP dissection`
-5. `feat(e2): ICMP and ARP dissection`
-6. `feat(e2): application protocols (DNS, HTTP) as supported set`
-7. `feat(e2): build hierarchical protocol tree per packet`
-8. `fix(e2): mark malformed or unsupported headers as undecoded and continue`
-9. `test(e2): validate decoded fields against reference values for each protocol`
-
-**Exit criteria**
-- ≥99% extraction success on valid captures (E1 KPI).
-- ≥95% correct decoding on supported validation packets (E2 KPI).
-- Corrupt file produces a clear error and the process keeps running (NFR-03).
-- A malformed packet never stops processing of the rest of the capture.
-
-**Tag:** `v0.2-phase2`
-
----
-
-## Phase 3 — Flow Correlation and Traffic Statistics (E3)
-
-**Goal:** group packets into flows and compute statistics, deterministically.
-**Requirements covered:** FR-04, FR-05, FR-06, NFR-07
-
-**Duration:** about 2 weeks (can start in week 1 of Phase 2 using fixtures and stubbed E2 output)
-
-> Note: FR-04 and FR-05 are worded identically in the handbook. Both are satisfied by the same five-tuple grouping, but consider rewording FR-04 (e.g. "identify protocol relationships") before Gate 1 so the traceability matrix stays honest.
-
-**Planned commits (10–12)**
-
-1. `feat(e3): define FlowKey (src IP, dst IP, src port, dst port, protocol)`
-2. `feat(e3): group TCP packets into flows by five-tuple`
-3. `feat(e3): group UDP packets into flows by five-tuple`
-4. `feat(e3): treat both directions of a conversation as one flow (normalized key)`
-5. `feat(e3): handle ICMP and non-port protocols with an applicable grouping rule`
-6. `feat(e3): classify packets without a valid tuple (e.g. ARP) as ungrouped`
-7. `feat(e3): compute per-flow packet count, byte count, start/end time and duration`
-8. `feat(e3): compute per-protocol statistics (packets, bytes, share of traffic)`
-9. `fix(e3): return partial statistics when timestamps are missing or a flow has one packet`
-10. `test(e3): compare flow membership against controlled capture with known flows`
-11. `test(e3): verify aggregates against independently calculated values (pandas/tshark)`
-12. `test(e3): determinism test, same input run N times gives identical flows and counts`
-
-**Reliability notes**
-- Use an ordered dictionary or sort flows by first-packet index so output order is stable (NFR-07).
-- Keep flow aggregation as a pure function of the packet list; this makes it easy to test.
-- Avoid floating-point drift in duration: store timestamps as integer nanoseconds or `Decimal` if the capture supports it.
-
-**Exit criteria**
-- ≥99% grouping consistency on controlled captures.
-- Ten repeated runs on the same capture give byte-identical JSON output.
-- Statistics match independent calculations on every fixture.
-
-**Tag:** `v0.3-phase3`
-
----
-
-## Phase 4 — Storage and Query Engine (E4, backend half)
-
-**Goal:** persist selected analysis results and let users filter them safely.
-**Requirements covered:** FR-07, FR-08, NFR-04, NFR-05
-
-**Duration:** about 2 weeks
-
-**Planned commits (9–11)**
-
-1. `feat(e4): create SQLite schema for captures, packets, protocol layers and flows`
-2. `feat(e4): repository layer with insert for packets and flows (parameterized SQL only)`
-3. `feat(e4): batch insert in a single transaction for large captures`
-4. `feat(e4): retrieve stored packets and flows by capture ID`
-5. `feat(e4): filter grammar (e.g. `ip.src == 10.0.0.1 && tcp.port == 443`) and parser`
-6. `feat(e4): translate validated filters into safe SQL`
-7. `fix(e4): reject malformed filters with a clear error, never crash the service (NFR-05)`
-8. `fix(e4): roll back and report failure if storage fails, never claim persistence (UC-07)`
-9. `test(e4): store-then-reload test comparing key fields and record counts`
-10. `test(e4): positive and negative filter test cases`
-11. `test(e4): fuzz the filter parser with random and malformed input`
-
-**Reliability notes**
-- Never build SQL by string concatenation; use parameters. This is also your SQL-injection defence.
-- Index on capture ID, flow ID, protocol and the five-tuple columns.
-- Store a hash of the source file so the same capture is not inserted twice by accident.
-
-**Exit criteria**
-- ≥99% of records inserted from a controlled capture come back with matching key fields (NFR-04).
-- A fuzzed filter run of at least a few thousand inputs causes zero crashes.
-- Empty results return an empty list, not an error (UC-08).
-
-**Tag:** `v0.4-phase4`
-
----
-
-## Phase 5 — API Layer and Web Interface (E4, presentation half + integration)
-
-**Goal:** connect all four engines behind an API and show results in the browser.
-**Requirements covered:** FR-09, FR-01 (upload path), NFR-01, NFR-02
-
-**Duration:** about 2 weeks
-
-**Planned commits (12–14)**
-
-**Backend API**
-1. `feat(api): POST /captures to upload and analyze a file`
-2. `feat(api): run analysis as a background job with status endpoint (keeps UI responsive, NFR-01)`
-3. `feat(api): GET packets (paginated), packet detail with raw bytes`
-4. `feat(api): GET protocol tree for a packet`
-5. `feat(api): GET flows and flow detail`
-6. `feat(api): GET statistics (per flow and per protocol)`
-7. `feat(api): query endpoint using the filter engine`
-8. `feat(api): consistent error responses (400/404/422/500) with readable messages`
-
-**Frontend**
-9. `feat(ui): upload page with progress and error display`
-10. `feat(ui): paginated packet list with hex/raw bytes panel`
-11. `feat(ui): collapsible protocol tree view`
-12. `feat(ui): flow table with drill-down to member packets`
-13. `feat(ui): statistics view with charts`
-14. `feat(ui): filter bar with inline validation errors and empty-state messages`
-
-**Reliability notes**
-- Paginate everything. Rendering 100k packets in the DOM is the fastest way to freeze the interface.
-- Limit upload size and validate the file magic bytes server-side, not only the extension.
-- Preserve UI state when the backend is unavailable and show a service-error banner (UC-09).
-
-**Exit criteria**
-- A user can go from upload to packet details, protocol tree, flows, statistics and filtering with no CLI use (NFR-02).
-- A 100 MB capture returns a usable result within 30 s on the test machine (NFR-01).
-- Uploading a corrupt file shows an error and the app stays usable.
-
-**Tag:** `v0.5-phase5`
-
----
-
-## Phase 6 — Integration Testing, Hardening, Documentation and Demo
-
-**Goal:** prove every requirement with evidence, close gaps and prepare the final submission.
-**Requirements covered:** all FR and NFR; fills the "Test Ref" column of the RTM
-
-**Duration:** about 1–2 weeks
-
-**Planned commits (8–10)**
-
-1. `test(integration): end-to-end test from upload to query for each fixture capture`
-2. `test(integration): automated acceptance tests mapped to FR-01 … FR-09 acceptance criteria`
-3. `test(perf): 100 MB benchmark script, record timings in docs`
-4. `test(robustness): corrupt, truncated, empty and unsupported file suite`
-5. `fix: resolve defects found during integration testing` (one commit per defect, referencing the issue)
-6. `perf: optimize hot paths found by profiling (only if NFR-01 is not met)`
-7. `docs: update RTM with design and test references for every requirement`
-8. `docs: README with install, run, test instructions and screenshots`
-9. `docs: user guide and architecture overview`
-10. `chore: release v1.0 with demo script and sample captures`
-
-**Exit criteria**
-- Every Mandatory requirement has a passing automated test, with the test name written in the RTM.
-- All engine KPIs from the handbook are measured and recorded: ≥99% extraction, ≥95% decoding, ≥99% grouping consistency, ≥99% retrieval integrity.
-- A fresh clone can be set up and run by following only the README.
-- A rehearsed demo covers all nine use cases (UC-01 to UC-09), including at least two exception flows.
-
-**Tag:** `v1.0`
-
----
-
-## Summary Timeline
-
-| Phase | Focus | Engines | Approx. commits | Tag |
-| --- | --- | --- | --- | --- |
-| 1 | Foundation, contracts, test data | All | 8–10 | `v0.1-phase1` |
-| 2 | Ingestion and protocol dissection | E1, E2 | 15–18 | `v0.2-phase2` |
-| 3 | Flows and statistics | E3 | 10–12 | `v0.3-phase3` |
-| 4 | Storage and query | E4 | 9–11 | `v0.4-phase4` |
-| 5 | API and web interface | E4 + integration | 12–14 | `v0.5-phase5` |
-| 6 | Testing, hardening, documentation | All | 8–10 | `v1.0` |
-
-**Total:** roughly 60–75 commits across the team, about 9–11 weeks if phases 2–4 overlap as suggested.
-
-## Requirement Coverage Check
-
-| Requirement | Phase | Requirement | Phase |
+| # | Task | Owner | Status |
 | --- | --- | --- | --- |
-| FR-01 | 2, 5 | NFR-01 | 5, 6 |
-| FR-02 | 2 | NFR-02 | 5 |
-| FR-03 | 2 | NFR-03 | 2, 6 |
-| FR-04 | 3 | NFR-04 | 4 |
-| FR-05 | 3 | NFR-05 | 4 |
-| FR-06 | 3 | NFR-06 | 2 |
-| FR-07 | 4 | NFR-07 | 3 |
-| FR-08 | 4 | | |
-| FR-09 | 5 | | |
+| 1 | Freeze engine responsibilities (this document + README) | All | Done (this revision) |
+| 2 | Define shared data contract incl. telemetry framing | All | Done (docs revision; code structures pending) |
+| 3 | Define probe identity and configuration variables | Hrishikesh | Documented; code wiring pending |
+| 4 | Design telemetry framing and validation rules | Hrishikesh | Documented in `data_contract.md`; implementation is Phase 4 |
+| 5 | Test strategy, CI, repository conventions | Hrishikesh | Exists (pytest, pre-commit, GitHub Actions); extended per this plan |
 
-## Top Risks and Mitigations
+**Proposed Conventional Commits:**
 
-| Risk | Impact | Mitigation |
-| --- | --- | --- |
-| Engine interfaces drift between owners | Integration breaks in Phase 5 | Freeze data contract in Phase 1; contract tests in CI |
-| Large captures freeze the UI or API | Fails NFR-01 | Streaming reads, background jobs, pagination, early 100 MB benchmark |
-| Malformed packets crash a dissector | Fails NFR-03 / NFR-06 | Per-packet try/except boundary; fuzz tests; mark undecoded and continue |
-| Non-deterministic flow ordering | Fails NFR-07 | Stable sort keys; repeated-run test in CI |
-| SQL injection or parser crash via filters | Fails NFR-05 | Parameterized queries; fuzz test; strict grammar |
-| One teammate blocked waiting on another | Schedule slip | Fixtures and stubs from Phase 1 so each engine is testable alone |
+1. `docs: realign README and plan with distributed tracing architecture`
+2. `docs(data-contract): define telemetry record, fingerprint and correlation structures`
+3. `docs(api): replace static-capture draft with live-tracing API design`
+4. `docs(contributing): add contract-change and integration-test rules`
+5. `feat(config): add probe/telemetry configuration skeleton` *(if done in code)*
 
-## Housekeeping Items in the Handbook
+**Unit / integration tests:** none new (documentation phase); the existing
+47-test suite must remain green.
 
-These small inconsistencies are worth fixing before Gate 1:
+**Acceptance criteria:**
 
-1. FR-04 and FR-05 have identical wording.
-2. In the Engine 03 sheet, the owner SRN is listed as 01FE24BCI074, which is Vaibhav's; Hrishikesh's SRN elsewhere is 01FE24BCI043.
-3. The student table headers read "SRN | Student Name" but the columns contain name then SRN.
-4. The Engine 03 and 04 "What This Engine Does NOT Own" cells are placeholder text; the Engine Decomposition Rule asks for explicit out-of-scope lists.
-5. The summary table lists the owner as "Hrishikesh" for E3 but the use-case diagram section is still empty.
+- All five docs describe the same four engines, ports (9000/8000) and flow.
+- Every team member has reviewed the contract; open questions are listed
+  (see below) and assigned.
+- `pytest`, `ruff check .`, `black --check .` pass unchanged.
+
+**Completion evidence:** this documentation revision; existing tag
+`v0.1-phase1` covers the offline foundation (models, interfaces, engines
+starter, routes, 47 unit tests).
+
+**Risks and mitigations:**
+
+| Risk | Mitigation |
+| --- | --- |
+| Contract drifts as engines are built in parallel | Contract changes require a docs PR + team review (CONTRIBUTING rules) |
+| 24-byte record turns out insufficient | Record layout already reserves a version field; extension strategy documented in the data contract |
+
+---
+
+## Phase 2 — E1: Distributed capture and buffering
+
+**Goal:** each probe host can passively capture real application traffic into
+a bounded buffer without blocking or unbounded memory growth.
+
+**Engine:** E1 (M Janaki).
+**Dependencies:** Phase 1 (contract: `CapturedPacket`), two probe hosts or VMs
+with capture privileges.
+
+**Ordered tasks (planned):**
+
+1. Spike: compare raw `AF_PACKET` socket vs. libpcap binding on the target OS;
+   record the decision here. *(Open decision — see risks.)*
+2. `feat(e1): live capture thread reading raw packets from an interface`
+3. `feat(e1): pre-allocated ring buffer with configurable slot count (default 10,000)`
+4. `feat(e1): producer-consumer handoff with mutex + condition variables`
+5. `feat(e1): emit CapturedPacket (probe ID, seq, timestamp, lengths, bytes)`
+6. `feat(e1): handle capture errors, interface loss and graceful shutdown`
+7. `feat(e1): buffer-saturation policy (drop-oldest vs drop-newest) with drop counters`
+8. `test(e1): ring-buffer unit tests (wrap, saturation, concurrent producer/consumer)`
+9. `test(e1): replay-mode test feeding controlled PCAP frames through the same buffer`
+10. `docs(e1): record capture-mechanism decision and privilege requirements`
+
+**Unit tests:** ring-buffer semantics (bounded capacity, no lost-slot
+accounting, thread-safe enqueue/dequeue under stress), timestamp capture,
+drop-counter accuracy, shutdown joins all threads.
+**Integration tests:** PCAP-replay harness drives the buffer at a configured
+rate and asserts ordered `CapturedPacket` output and zero silent drops below
+capacity.
+
+**Acceptance criteria:**
+
+- Sustained synthetic input at 10,000 packets/s is absorbed with the buffer
+  bounded at its configured slot count (measure, don't assume).
+- Saturation is observable (counters) and never crashes the probe.
+- Shutdown within a bounded time with no thread leaks.
+
+**Completion evidence:** _(to be filled: commits, benchmark numbers, test run
+links — none exist yet)_
+
+**Risks and mitigations:**
+
+| Risk | Mitigation |
+| --- | --- |
+| Raw-socket approach is Linux-only / needs root | Decide via the Phase-2 spike; keep a libpcap fallback behind the E1 interface |
+| Python GC/GIL limits capture throughput | Keep capture thread minimal (copy bytes, enqueue); benchmark early; document measured ceiling |
+| Timestamp quality insufficient for ΔT | Use kernel-assisted timestamps where available; document precision achieved |
+
+---
+
+## Phase 3 — E2: Protocol dissection and fingerprinting
+
+**Goal:** decode supported protocols and produce a stable 64-bit fingerprint
+that matches the same packet at both probes.
+
+**Engine:** E2 (Chhavi Mishra).
+**Dependencies:** Phase 1 (contract), Phase 2 output (`CapturedPacket`), or
+the PCAP-replay harness for offline development.
+
+**Ordered tasks (planned):**
+
+1. `feat(e2): reuse/extend existing dissectors for Ethernet, IPv4/IPv6, TCP, UDP, ICMP, DNS`
+2. `feat(e2): select invariant field set per protocol (skip TTL, MACs, checksums)`
+3. `feat(e2): 64-bit BLAKE2b fingerprint with explicit algorithm version`
+4. `test(e2): fingerprint stability across two captures of the same flow (replay at both "probe" positions)`
+5. `test(e2): document and test known instability cases (IPv4 ID zeroing, fragments, retransmissions, NAT)`
+6. `feat(e2): DNS-query Shannon entropy calculation (H(X) = −Σ p·log₂ p)`
+7. `test(e2): entropy unit tests (uniform, skewed, empty, non-ASCII names)`
+8. `feat(e2): compact telemetry metadata emission toward the 24-byte record`
+9. `docs(e2): fingerprint field matrix and limitation notes in the data contract`
+
+**Unit tests:** per-protocol decapsulation against the existing byte-level
+fixtures; fingerprint determinism; entropy values against hand-computed
+examples; malformed-packet containment (never crash, mark undecoded).
+**Integration tests:** same synthetic flow captured "twice" (simulated probes,
+including a hop that decrements TTL and rewrites MACs) must yield identical
+fingerprints for the supported field set.
+
+**Acceptance criteria:**
+
+- Fingerprints identical across simulated hops for TCP/UDP/IPv4 flows built
+  from supported fields.
+- Fingerprint computed in well under the per-packet telemetry budget on the
+  target hardware (measure; the presentation's "< 0.1 µs" is a target).
+- DNS entropy produces correct values on known inputs; the *classification*
+  (possible exfiltration) stays in E4.
+
+**Completion evidence:** _(none yet)_
+
+**Risks and mitigations:**
+
+| Risk | Mitigation |
+| --- | --- |
+| IPv4 ID is zero/random on modern stacks → weaker fingerprints | Validate; consider falling back to a payload-length + ports + seq combination; document per-stack results |
+| NAT or middleboxes rewrite IPs/IDs between probes | Documented limitation; recommend probes inside the same administrative domain; add NAT-simulated integration test |
+| IP fragments lack transport headers | Define fragment handling (match on IP ID + fragment fields, or exclude with a flag) in the contract |
+| 64-bit collisions between concurrent packets | Birthday-bound analysis in the data contract; collisions within the 500 ms window are rare but must degrade gracefully |
+
+---
+
+## Phase 4 — E3: Telemetry ingestion and correlation
+
+**Goal:** central server ingests telemetry from both probes and turns it into
+delay estimates and unmatched-packet events.
+
+**Engine:** E3 (Hrishikesh Patil).
+**Dependencies:** Phase 1 (telemetry record), Phase 3 (fingerprints arriving
+in records).
+
+**Ordered tasks (planned):**
+
+1. `feat(e3): TCP ingestion service on port 9000 (asyncio), one persistent connection per probe`
+2. `feat(e3): record framing, version check and malformed-message handling`
+3. `feat(e3): correlation hash table keyed by fingerprint (+ disambiguating metadata)`
+4. `feat(e3): min-heap of expiration deadlines (T₁ + timeout, default 500 ms)`
+5. `feat(e3): match handling — compute ΔT = T₂ − T₁, emit CorrelationRecord`
+6. `feat(e3): late-match handling for records arriving after timeout expiry`
+7. `feat(e3): duplicate and out-of-order telemetry handling`
+8. `feat(e3): clock-quality checks (negative/implausible ΔT flagged, not silently accepted)`
+9. `feat(e3): event stream toward E4 (matched, late, unmatched/timeout)`
+10. `test(e3): unit tests for matching, expiry boundaries, late arrivals, duplicates, collisions`
+11. `test(e3): integration test — two synthetic probes → ingestion → expected records`
+12. `docs(e3): correlation semantics and timeout interpretation`
+
+**Unit tests:** O(1) insert/lookup path; heap ordering; timeout boundary
+(exactly at 500 ms — define and test inclusivity); late match after expiry
+produces a `late` record and updates stats; duplicate T₂ ignored; ΔT negative
+→ flagged; key collision within window handled deterministically.
+**Integration tests:** scripted two-probe streams (in order, reversed,
+interleaved, with drops and delays) assert the exact set of correlation
+records and timeout events.
+
+**Acceptance criteria:**
+
+- With synthetic load, correlation throughput ≥ the expected probe packet
+  rate with headroom (measure and record).
+- No unbounded memory: expired entries always leave both the table and heap.
+- Every timeout is explained by an absent T₂ within the window, and late
+  arrivals are visible as `late`, never double-counted as loss.
+
+**Completion evidence:** _(none yet)_
+
+**Risks and mitigations:**
+
+| Risk | Mitigation |
+| --- | --- |
+| Clock skew between probes corrupts ΔT | Require NTP on probes; flag implausible values; expose clock-offset estimate in stats |
+| Fingerprint collisions cause false matches | Disambiguate with metadata (length, ports); document residual risk |
+| Heap grows under loss floods | Hard cap + drop-counter telemetry; alert on cap hits |
+| Telemetry protocol bug breaks both probes at once | Version byte + strict validation + canary integration test in CI |
+
+---
+
+## Phase 5 — E4: Diagnostic rules and persistence
+
+**Goal:** convert correlation events into evidence-backed diagnostic alerts
+and persist everything for history.
+
+**Engine:** E4 (Vaibhav Kumar).
+**Dependencies:** Phase 4 (event stream), existing E4 storage code.
+
+**Ordered tasks (planned):**
+
+1. `feat(e4): SQLite schema v2 — probes, correlation/packet records, diagnostic_alerts (minishark.db per team decision)`
+2. `feat(e4): schema-version management (user_version pragma) and migrations`
+3. `feat(e4): transactional repository for correlation events and alerts`
+4. `feat(e4): deterministic rule engine — packet loss / link-drop rule`
+5. `feat(e4): bufferbloat rule (sustained rising ΔT pattern)`
+6. `feat(e4): application-freeze / server-delay rule`
+7. `feat(e4): possible DNS exfiltration rule (entropy signal + context, never as sole proof)`
+8. `feat(e4): alert evidence, severity and recommended-action templates`
+9. `test(e4): rule tests per category with synthetic metric windows (positive + negative)`
+10. `test(e4): persistence round-trip, migration and crash-safety (rollback) tests`
+11. `docs(e4): rule definitions, thresholds and confidence qualifications`
+
+**Unit tests:** each rule fires and *does not* fire on crafted inputs;
+threshold boundaries; evidence completeness; DB round-trip equality;
+migration from the offline schema; rollback on injected storage failure.
+**Integration tests:** E3 synthetic event stream → expected alerts persisted
+with correct evidence links.
+
+**Acceptance criteria:**
+
+- Every alert references the correlation records/packet fingerprints that
+  justify it; recommendations are labelled guidance, not guarantees.
+- DNS entropy alone never produces a "confirmed theft" alert.
+- Database survives kill-during-write without corruption (WAL/rollback
+  verified by test).
+
+**Completion evidence:** _(none yet)_
+
+**Risks and mitigations:**
+
+| Risk | Mitigation |
+| --- | --- |
+| Rules produce false positives that erode trust | Conservative defaults, tunable thresholds, evidence always shown, confidence field |
+| Schema churn between phases | Versioned migrations from day one |
+| Alert volume floods storage/UI | Rate limiting, deduplication window, aggregation of recurring alerts |
+
+---
+
+## Phase 6 — API, WebSocket delivery and React dashboard
+
+**Goal:** live and historical data visible to a user with no page reloads.
+
+**Engine:** E4 (Vaibhav Kumar), with E3 as data source.
+**Dependencies:** Phases 4–5, `api_routes.md` design.
+
+**Ordered tasks (planned):**
+
+1. `feat(api): health/readiness + probe status endpoints`
+2. `feat(api): correlation/live-metrics endpoints (recent ΔT, loss events, stats)`
+3. `feat(api): diagnostics endpoints (current, detail with evidence, history + filters)`
+4. `feat(api): historical queries (time ranges, aggregates, bounded pagination)`
+5. `feat(api): WebSocket /ws/live — typed messages (latency, loss, probe status, alerts, errors)`
+6. `feat(ui): React scaffold + WebSocket client with reconnect/backoff`
+7. `feat(ui): live latency graph and packet-loss metric`
+8. `feat(ui): network status and probe health indicators`
+9. `feat(ui): diagnostic incident cards with evidence and recommended action`
+10. `feat(ui): historical views with bounded rendering/pagination`
+11. `test(api): endpoint contract tests + WebSocket message-schema tests`
+12. `test(ui): component tests for graph, cards, reconnect behaviour`
+
+**Unit tests:** response shapes and status codes per `api_routes.md`; WS
+message validation both directions; reconnect emits no duplicate state.
+**Integration tests:** synthetic event injection → REST reflects it → WS
+client receives a typed message within a bounded time.
+
+**Acceptance criteria:**
+
+- Dashboard stays responsive under sustained synthetic event flow (measure
+  update rate actually delivered; the 60 FPS figure is a rendering target —
+  document measured backend push cadence separately).
+- WS reconnect after a server restart restores live state without manual
+  reload.
+- All historical views bounded (pagination/windowing), no unbounded DOM growth.
+
+**Completion evidence:** _(none yet)_
+
+**Risks and mitigations:**
+
+| Risk | Mitigation |
+| --- | --- |
+| WS message churn breaks the dashboard | Message-type registry + schema tests in CI; version field |
+| Rendering 60 FPS overloads browsers | Throttle/batch pushes (e.g. 10 Hz data, interpolated rendering); document honestly |
+| REST/WS duplication drifts | Single serialization layer shared by both |
+
+---
+
+## Phase 7 — Integration, validation and final demonstration
+
+**Goal:** prove the whole two-probe-to-dashboard pipeline end to end and
+publish honest, reproducible results.
+
+**Engine:** all.
+**Dependencies:** Phases 2–6.
+
+**Ordered tasks (planned):**
+
+1. `test(integration): full pipeline — two synthetic probes → correlation → alerts → API/WS`
+2. `test(integration): failure/recovery — probe disconnect, server restart, DB locked, malformed telemetry flood`
+3. `perf: telemetry size and overhead measurement script (24-byte claim, <1.5% claim)`
+4. `perf: capture-throughput, buffer-saturation and drop-counter benchmarks`
+5. `perf: correlation throughput and timeout-accuracy benchmarks`
+6. `perf: CPU/memory footprint per component; dashboard delivered-update-rate measurement`
+7. `docs: record reproducible results (methods + raw numbers) in a results document`
+8. `docs: known limitations and open questions for the final report`
+9. `chore: demo runbook and tagged release`
+
+**Tests:** the integration and failure suites above; regression run of all
+unit tests on the release commit.
+
+**Acceptance criteria:**
+
+- A fresh clone can reproduce the demo by following the README only.
+- Every performance claim in the README is either backed by a recorded
+  measurement or explicitly labelled a target.
+- Limitations (clock sync, fingerprint stability, timeout semantics, DNS
+  heuristic) are stated in the final documentation.
+
+**Completion evidence:** _(none yet)_
+
+**Risks and mitigations:**
+
+| Risk | Mitigation |
+| --- | --- |
+| Demo-day network is unreliable | Pre-recorded fallback capture + replay mode |
+| Benchmarks flaky on laptops | Document methodology, repeat runs, report medians |
+
+---
+
+## Summary
+
+| Phase | Focus | Engine | State |
+| --- | --- | --- | --- |
+| 1 | Architecture, contracts, foundation | All | Docs revision done; code wiring pending |
+| 2 | Live capture and buffering | E1 | Planned |
+| 3 | Dissection and fingerprinting | E2 | Planned (dissector base exists) |
+| 4 | Telemetry ingestion and correlation | E3 | Planned |
+| 5 | Diagnostic rules and persistence | E4 | Planned (offline storage exists) |
+| 6 | API, WebSocket, React dashboard | E4 | Planned (offline routes exist) |
+| 7 | Integration, validation, demo | All | Planned |
+
+## Open questions requiring team confirmation
+
+1. **Capture mechanism for E1** — raw `AF_PACKET` sockets (Linux/root) vs.
+   libpcap binding; affects portability claims.
+2. **Database file name** — presentation says `minishark.db`; current code
+   default is `mini_shark.db` (`MINI_SHARK_DB` override exists). Rename or
+   accept the code name?
+3. **Clock synchronisation policy** — required NTP accuracy, and whether E3
+   should ingest a probe-reported clock offset.
+4. **Fingerprint field set per protocol** — presentation lists IPv4 ID,
+   protocol, IPs, TCP seq; confirm handling for UDP/ICMP and stacks that
+   zero the IPv4 ID.
+5. **Telemetry record extension** — the 24-byte record has spare flag bits
+   but no room for ports/metrics; confirm the extension path (flag-driven
+   side records) if E3 needs disambiguating metadata.
+6. **CI branch mismatch** — CI triggers on `main`, default branch is
+   `master`; align (config change, team decision).
+7. **Retention policy** — how long correlation records and raw telemetry
+   summaries live in `minishark.db` before pruning.
