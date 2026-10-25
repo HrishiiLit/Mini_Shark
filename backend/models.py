@@ -26,6 +26,28 @@ class Packet:
 
 
 @dataclass(frozen=True)
+class CapturedPacket:
+    """Engine E1 -> E2 contract: In-flight captured frame at a probe.
+
+    probe_id: numeric identifier of the observing probe (e.g. 1=client, 2=server)
+    seq: per-probe monotonic sequence counter for gap and loss tracking
+    timestamp_ns: capture timestamp in integer nanoseconds since Unix epoch
+    captured_len: bytes captured into memory (slice length)
+    original_len: wire length of the frame on the physical network
+    data: raw frame bytes (Ethernet header + payload)
+    interface: optional name of network interface card (e.g. 'eth0')
+    """
+
+    probe_id: int
+    seq: int
+    timestamp_ns: int
+    captured_len: int
+    original_len: int
+    data: bytes
+    interface: str = ""
+
+
+@dataclass(frozen=True)
 class Layer:
     """A protocol layer in the decoded packet tree.
 
