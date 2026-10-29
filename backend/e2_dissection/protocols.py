@@ -364,3 +364,126 @@ def build_default_registry() -> DissectorRegistry:
     registry.register("port", 8080, "HTTP", http)
     registry.register("port", 8000, "HTTP", http)
     return registry
+
+
+# ---------------------------------------------------------------------------
+# Invariant field extraction — Phase 3
+# ---------------------------------------------------------------------------
+# Rules (from data_contract.md §3):
+#   INCLUDED  : IP src/dst, IP protocol/next-header, IPv4 ID,
+#               TCP seq, UDP src+dst ports + length,
+#               ICMP type + code + identifier/sequence
+#   EXCLUDED  : TTL / Hop Limit (decremented per hop),
+#               MAC addresses (rewritten per hop),
+#               all IP/transport checksums (recalculated per hop)
+#
+# The extractor walks the already-decoded layer list produced by _walk() and
+# builds a deterministic list of (field_name, encoded_bytes) pairs.  These are
+# then concatenated and hashed by the engine.  Using a name-tagged encoding
+# prevents accidental collisions between fields of different protocols that
+# happen to share the same byte representation.
+# ---------------------------------------------------------------------------
+
+def _encode_field(name: str, value: object) -> bytes:
+    """Encode a single (name, value) pair as length-prefixed bytes.
+
+    Format: <1-byte name-length><name-bytes><encoded-value>
+    Value encoding rules:
+      - int  → 8-byte big-endian uint64 (covers all header ints safely)
+      - str  → UTF-8 bytes
+      - bytes → raw bytes
+    The name prefix makes the encoding unambiguous across protocols.
+    """
+    name_bytes = name.encode()
+    if isinstance(value, int):
+        val_bytes = value.to_bytes(8, "big")
+    elif isinstance(value, str):
+        val_bytes = value.encode()
+    elif isinstance(value, (bytes, bytearray)):
+        val_bytes = bytes(value)
+    else:
+        val_bytes = str(value).encode()
+    return bytes([len(name_bytes)]) + name_bytes + val_bytes
+
+
+def extract_invariant_fields(layers: list[Layer]) -> tuple[bytes, list[str]]:
+    """Return ``(blob, fields_used)`` for fingerprinting.
+
+    ``blob``        — deterministic byte sequence to feed into BLAKE2b.
+    ``fields_used`` — human-readable list of field names that were included
+                      (for debugging / data-contract documentation).
+
+    Returns ``(b"", [])`` when no IP layer is present (e.g. pure ARP).
+    """
+    parts: list[bytes] = []
+    fields_used: list[str] = []
+
+    def add(name: str, value: object) -> None:
+        parts.append(_encode_field(name, value))
+        fields_used.append(name)
+
+    layer_map: dict[str, Layer] = {layer.name: layer for layer in layers}
+
+    # ---- IP layer (required; no fingerprint without it) ----
+    if "IPv4" in layer_map:
+        ip = layer_map["IPv4"]
+        f = ip.fields
+        # Included: src, dst, protocol, identification
+        # Excluded: ttl, checksum, tos, flags_frag (mutable), total_length
+        if not f.get("malformed") and not f.get("truncated"):
+            add("ip.src", f.get("src", ""))
+            add("ip.dst", f.get("dst", ""))
+            add("ip.proto", f.get("protocol", 0))
+            add("ip.id", f.get("id", 0))
+    elif "IPv6" in layer_map:
+        ip = layer_map["IPv6"]
+        f = ip.fields
+        # Included: src, dst, next_header
+        # Excluded: hop_limit (equivalent to TTL), flow_label (can change)
+        if not f.get("malformed") and not f.get("truncated"):
+            add("ip6.src", f.get("src", ""))
+            add("ip6.dst", f.get("dst", ""))
+            add("ip6.next_header", f.get("next_header", 0))
+    else:
+        # No IP layer — cannot produce a meaningful cross-probe fingerprint
+        return b"", []
+
+    # ---- Transport layer ----
+    if "TCP" in layer_map:
+        tcp_layer = layer_map["TCP"]
+        f = tcp_layer.fields
+        # Included: seq (stable end-to-end for a given segment)
+        # Excluded: ack (changes in responses), flags (can differ at probes in
+        #           edge cases), window, checksum, src/dst ports (NAT-rewritten
+        #           on some deployments — kept here per data contract §3 which
+        #           does NOT list ports as excluded; they are stable within a
+        #           same-admin-domain deployment)
+        if not f.get("malformed") and not f.get("truncated"):
+            add("tcp.src_port", f.get("src_port", 0))
+            add("tcp.dst_port", f.get("dst_port", 0))
+            add("tcp.seq", f.get("seq", 0))
+
+    elif "UDP" in layer_map:
+        udp_layer = layer_map["UDP"]
+        f = udp_layer.fields
+        # Included: src port, dst port, length (no sequence number in UDP)
+        # Excluded: checksum (recalculated per hop due to TTL in pseudo-header)
+        if not f.get("malformed") and not f.get("truncated"):
+            add("udp.src_port", f.get("src_port", 0))
+            add("udp.dst_port", f.get("dst_port", 0))
+            add("udp.length", f.get("length", 0))
+
+    elif "ICMP" in layer_map:
+        icmp_layer = layer_map["ICMP"]
+        f = icmp_layer.fields
+        # Included: type, code
+        # Excluded: checksum
+        if not f.get("malformed") and not f.get("truncated"):
+            add("icmp.type", f.get("type", 0))
+            add("icmp.code", f.get("code", 0))
+
+    if not parts:
+        # IP layer was malformed/truncated — no usable fields
+        return b"", []
+
+    return b"".join(parts), fields_used
