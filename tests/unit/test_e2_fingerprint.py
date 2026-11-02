@@ -14,40 +14,37 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import socket
 import struct
 import sys
-import os
 
 # Make sure the project root is importable when tests run from tests/unit/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # Use the local helpers for byte-level frame building
 from helpers import (
+    ETHERTYPE_IPV4,
     arp_frame,
     dns_query,
     ethernet,
     ipv4,
-    tcp,
     tcp_frame,
-    udp,
     udp_frame,
-    ETHERTYPE_IPV4,
 )
 
 from backend.e2_dissection.engine import (
     ProtocolDissector,
     _compute_fingerprint,
     _dns_shannon_entropy,
-    _make_telemetry,
 )
-from backend.e2_dissection.protocols import extract_invariant_fields, _encode_field
+from backend.e2_dissection.protocols import _encode_field, extract_invariant_fields
 from backend.models import DecodedPacket, Packet, PacketFingerprint, ProbeTelemetry
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _packet(frame: bytes, index: int = 0, timestamp: float = 1.0) -> Packet:
     return Packet(index=index, timestamp=timestamp, length=len(frame), raw_bytes=frame)
@@ -68,30 +65,45 @@ def _icmp_frame(
 
 def _tcp_frame_with_ttl(ttl: int, seq: int = 1000) -> bytes:
     """TCP frame where we control TTL and TCP seq directly (for stability tests)."""
-    tcp_payload = struct.pack("!HHIIHHHH", 12345, 80, seq, 2000, (5 << 12) | 0x18, 8192, 0, 0)
+    tcp_payload = struct.pack(
+        "!HHIIHHHH", 12345, 80, seq, 2000, (5 << 12) | 0x18, 8192, 0, 0
+    )
     total_length = 20 + len(tcp_payload)
     ip_header = struct.pack(
         "!BBHHHBBH4s4s",
-        0x45, 0, total_length,
-        0x1234,         # identification
-        0,              # flags + fragment offset
-        ttl,            # <-- the variable we're testing
-        6,              # TCP
+        0x45,
+        0,
+        total_length,
+        0x1234,  # identification
+        0,  # flags + fragment offset
+        ttl,  # <-- the variable we're testing
+        6,  # TCP
         0,
         socket.inet_aton("10.0.0.1"),
         socket.inet_aton("10.0.0.2"),
     )
-    eth_header = bytes.fromhex("aabbccddeeff") + bytes.fromhex("112233445566") + b"\x08\x00"
+    eth_header = (
+        bytes.fromhex("aabbccddeeff") + bytes.fromhex("112233445566") + b"\x08\x00"
+    )
     return eth_header + ip_header + tcp_payload
 
 
 def _tcp_frame_with_mac(src_mac: str, seq: int = 1000) -> bytes:
     """TCP frame where we control the source MAC (for stability tests)."""
-    tcp_payload = struct.pack("!HHIIHHHH", 12345, 80, seq, 2000, (5 << 12) | 0x18, 8192, 0, 0)
+    tcp_payload = struct.pack(
+        "!HHIIHHHH", 12345, 80, seq, 2000, (5 << 12) | 0x18, 8192, 0, 0
+    )
     total_length = 20 + len(tcp_payload)
     ip_header = struct.pack(
         "!BBHHHBBH4s4s",
-        0x45, 0, total_length, 0x1234, 0, 64, 6, 0,
+        0x45,
+        0,
+        total_length,
+        0x1234,
+        0,
+        64,
+        6,
+        0,
         socket.inet_aton("10.0.0.1"),
         socket.inet_aton("10.0.0.2"),
     )
@@ -104,6 +116,7 @@ def _tcp_frame_with_mac(src_mac: str, seq: int = 1000) -> bytes:
 # ===========================================================================
 # A. Invariant field extraction
 # ===========================================================================
+
 
 class TestExtractInvariantFields:
 
@@ -167,7 +180,7 @@ class TestExtractInvariantFields:
         assert len(blob) > 0
 
     def test_encode_field_name_prefix_prevents_collisions(self):
-        """Two different fields with the same integer value must produce different blobs."""
+        """Equal values in different fields must produce different blobs."""
         enc_a = _encode_field("ip.proto", 6)
         enc_b = _encode_field("tcp.seq", 6)
         assert enc_a != enc_b
@@ -183,6 +196,7 @@ class TestExtractInvariantFields:
 # ===========================================================================
 # B. BLAKE2b fingerprint correctness
 # ===========================================================================
+
 
 class TestComputeFingerprint:
 
@@ -211,7 +225,7 @@ class TestComputeFingerprint:
         assert 0 <= fp.value < 2**64
 
     def test_fingerprint_matches_manual_blake2b(self):
-        """Cross-check: the fingerprint value must equal hashlib.blake2b on the same blob."""
+        """Cross-check against hashlib.blake2b on the same blob."""
         frame = tcp_frame()
         decoded = _decode(frame)
         fp = _compute_fingerprint(decoded.layers)
@@ -238,7 +252,7 @@ class TestComputeFingerprint:
         assert len(fp.fields_used) > 0
 
     def test_different_tcp_seq_produces_different_fingerprint(self):
-        """Packets with different TCP sequence numbers must get different fingerprints."""
+        """Different TCP sequence numbers must get different fingerprints."""
         frame_a = _tcp_frame_with_ttl(ttl=64, seq=1000)
         frame_b = _tcp_frame_with_ttl(ttl=64, seq=9999)
 
@@ -262,6 +276,7 @@ class TestComputeFingerprint:
 # ===========================================================================
 # C. Fingerprint stability — TTL and MAC changes must NOT affect fingerprint
 # ===========================================================================
+
 
 class TestFingerprintStability:
 
@@ -317,6 +332,7 @@ class TestFingerprintStability:
 # ===========================================================================
 # D. DNS Shannon entropy
 # ===========================================================================
+
 
 class TestDnsEntropy:
 
@@ -403,17 +419,18 @@ class TestDnsEntropy:
 # E. ProbeTelemetry pack / unpack
 # ===========================================================================
 
+
 class TestProbeTelemetrySerialization:
 
     def _sample(self, **kwargs) -> ProbeTelemetry:
-        defaults = dict(
-            fingerprint=0xDEADBEEFCAFEBABE,
-            timestamp_ns=1_700_000_000_123_456_789,
-            seq=42,
-            probe_id=1,
-            type_flags=0x11,   # version nibble 1, record type 1
-            captured_len=1514,
-        )
+        defaults = {
+            "fingerprint": 0xDEADBEEFCAFEBABE,
+            "timestamp_ns": 1_700_000_000_123_456_789,
+            "seq": 42,
+            "probe_id": 1,
+            "type_flags": 0x11,
+            "captured_len": 1514,
+        }
         defaults.update(kwargs)
         return ProbeTelemetry(**defaults)
 
@@ -434,6 +451,7 @@ class TestProbeTelemetrySerialization:
 
     def test_unpack_wrong_length_raises(self):
         import pytest
+
         with pytest.raises(ValueError, match="24 bytes"):
             ProbeTelemetry.unpack(b"\x00" * 23)
 
@@ -448,8 +466,12 @@ class TestProbeTelemetrySerialization:
 
     def test_all_zero_record(self):
         zero = ProbeTelemetry(
-            fingerprint=0, timestamp_ns=0, seq=0, probe_id=0,
-            type_flags=0, captured_len=0
+            fingerprint=0,
+            timestamp_ns=0,
+            seq=0,
+            probe_id=0,
+            type_flags=0,
+            captured_len=0,
         )
         raw = zero.pack()
         assert raw == b"\x00" * 24
@@ -490,6 +512,7 @@ class TestProbeTelemetrySerialization:
 # ===========================================================================
 # F. make_telemetry helper
 # ===========================================================================
+
 
 class TestMakeTelemetry:
 
@@ -567,6 +590,7 @@ class TestMakeTelemetry:
 # G. Integration — dissect_one attaches fingerprint and entropy
 # ===========================================================================
 
+
 class TestDissectOneIntegration:
 
     def test_dissect_one_tcp_has_fingerprint(self):
@@ -614,14 +638,14 @@ class TestDissectOneIntegration:
         assert d1.fingerprint.value == d2.fingerprint.value
 
     def test_malformed_packet_has_no_fingerprint_and_does_not_raise(self):
-        """A truncated/malformed frame must not crash and must return None fingerprint."""
+        """A truncated frame must not crash and must have no fingerprint."""
         decoded = _decode(b"\x00\x01\x02")
 
         assert decoded is not None
         assert decoded.fingerprint is None
 
     def test_batch_dissect_preserves_all_fingerprints(self):
-        """dissect() on a batch must attach fingerprints to all fingerprint-able packets."""
+        """dissect() must fingerprint all supported packets in a batch."""
         dissector = ProtocolDissector()
         frames = [tcp_frame(), tcp_frame(sport=9999), udp_frame()]
         packets = [_packet(f, i) for i, f in enumerate(frames)]

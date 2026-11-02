@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
   pull_request:
-    branches: [main]
+    branches: [master, main]
 
 jobs:
   lint-test:
@@ -19,8 +19,7 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install -r requirements.txt || true
-          pip install ruff black pytest pre-commit
+          pip install -e '.[dev]'
       - name: Run pre-commit
         run: |
           source .venv/bin/activate

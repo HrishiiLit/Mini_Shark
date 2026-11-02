@@ -37,6 +37,7 @@ dist/
 
 # OS artefacts
 .DS_Store
+powershell.cmd
 
 # Executable binaries
 *.exe

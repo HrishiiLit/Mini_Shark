@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
-from backend.e1_capture.live import LiveCapture, _SCAPY_AVAILABLE
+from backend.e1_capture.live import _SCAPY_AVAILABLE, LiveCapture
 from backend.e2_dissection import ProtocolDissector
 from backend.e3_flows import FlowGrouper
 from backend.e4_query import FILTER_FIELDS, QueryEngine
@@ -192,10 +192,18 @@ def list_filter_fields() -> dict[str, Any]:
 
 @router.post("/captures/live")
 def live_capture(
-    count: int = Query(default=20, ge=1, le=500, description="Number of packets to capture"),
-    iface: str | None = Query(default=None, description="Interface name (default: auto Wi-Fi)"),
-    bpf_filter: str = Query(default="", description="BPF filter e.g. 'tcp' or 'port 53'"),
-    timeout: int = Query(default=15, ge=1, le=60, description="Capture timeout in seconds"),
+    count: int = Query(
+        default=20, ge=1, le=500, description="Number of packets to capture"
+    ),
+    iface: str | None = Query(
+        default=None, description="Interface name (default: auto Wi-Fi)"
+    ),
+    bpf_filter: str = Query(
+        default="", description="BPF filter e.g. 'tcp' or 'port 53'"
+    ),
+    timeout: int = Query(
+        default=15, ge=1, le=60, description="Capture timeout in seconds"
+    ),
 ) -> dict[str, Any]:
     """Capture live packets from a network interface, run through E1→E2→E3.
 
@@ -209,7 +217,7 @@ def live_capture(
 
     try:
         capturer = LiveCapture(iface=iface, timeout=timeout)
-        packets  = capturer.capture(count=count, bpf_filter=bpf_filter)
+        packets = capturer.capture(count=count, bpf_filter=bpf_filter)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -223,24 +231,24 @@ def live_capture(
         }
 
     dissector = ProtocolDissector()
-    decoded   = dissector.dissect(packets)
-    flows     = FlowGrouper().group(decoded, packets)
-    stats     = FlowGrouper.statistics(flows)
+    decoded = dissector.dissect(packets)
+    flows = FlowGrouper().group(decoded, packets)
+    stats = FlowGrouper.statistics(flows)
 
     # Build per-packet summary including E2 fingerprint + entropy
     packet_summaries = []
-    for pkt, dec in zip(packets, decoded):
+    for pkt, dec in zip(packets, decoded, strict=True):
         entry: dict[str, Any] = {
-            "index":     pkt.index,
+            "index": pkt.index,
             "timestamp": pkt.timestamp,
-            "length":    pkt.length,
-            "layers":    [l.name for l in dec.layers],
+            "length": pkt.length,
+            "layers": [layer.name for layer in dec.layers],
         }
         if dec.fingerprint:
             entry["fingerprint"] = f"0x{dec.fingerprint.value:016X}"
             entry["fingerprint_fields"] = dec.fingerprint.fields_used
         if dec.dns_entropy is not None:
-            entry["dns_entropy"]       = round(dec.dns_entropy, 4)
+            entry["dns_entropy"] = round(dec.dns_entropy, 4)
             entry["dns_exfil_suspect"] = dec.dns_entropy > 4.2
 
         telemetry = dissector.make_telemetry(dec, pkt, probe_id=1, seq=pkt.index)
@@ -250,9 +258,9 @@ def live_capture(
         packet_summaries.append(entry)
 
     return {
-        "interface":        capturer.iface,
+        "interface": capturer.iface,
         "packets_captured": len(packets),
-        "flows":            len([f for f in flows if f.flow_id != -1]),
-        "statistics":       stats,
-        "packets":          packet_summaries,
+        "flows": len([f for f in flows if f.flow_id != -1]),
+        "statistics": stats,
+        "packets": packet_summaries,
     }

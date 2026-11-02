@@ -96,10 +96,9 @@ in the same commit or the one immediately after.
    affected engine owners named in the PR description.
 4. Release tags (`v0.x-phaseY`) are created by maintainers after merge.
 
-> **Known issue:** the CI workflow currently triggers on the branch name
-> `main` while the default branch is `master`. Until the team decides to
-> align them (tracked in [implementation.md](implementation.md) open
-> questions), do not assume CI ran on your PR — run the checks locally.
+CI covers both `master` and `main`. Install reproducible development dependencies
+with `pip install -e '.[dev]'`; add the `live` extra for Scapy capture.
+Run checks locally as well as checking the remote workflow result.
 
 ## Reporting reproducible defects
 

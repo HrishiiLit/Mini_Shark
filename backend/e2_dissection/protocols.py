@@ -384,6 +384,7 @@ def build_default_registry() -> DissectorRegistry:
 # happen to share the same byte representation.
 # ---------------------------------------------------------------------------
 
+
 def _encode_field(name: str, value: object) -> bytes:
     """Encode a single (name, value) pair as length-prefixed bytes.
 
@@ -448,42 +449,28 @@ def extract_invariant_fields(layers: list[Layer]) -> tuple[bytes, list[str]]:
         # No IP layer — cannot produce a meaningful cross-probe fingerprint
         return b"", []
 
-    # ---- Transport layer ----
-    if "TCP" in layer_map:
-        tcp_layer = layer_map["TCP"]
-        f = tcp_layer.fields
-        # Included: seq (stable end-to-end for a given segment)
-        # Excluded: ack (changes in responses), flags (can differ at probes in
-        #           edge cases), window, checksum, src/dst ports (NAT-rewritten
-        #           on some deployments — kept here per data contract §3 which
-        #           does NOT list ports as excluded; they are stable within a
-        #           same-admin-domain deployment)
-        if not f.get("malformed") and not f.get("truncated"):
-            add("tcp.src_port", f.get("src_port", 0))
-            add("tcp.dst_port", f.get("dst_port", 0))
-            add("tcp.seq", f.get("seq", 0))
-
-    elif "UDP" in layer_map:
-        udp_layer = layer_map["UDP"]
-        f = udp_layer.fields
-        # Included: src port, dst port, length (no sequence number in UDP)
-        # Excluded: checksum (recalculated per hop due to TTL in pseudo-header)
-        if not f.get("malformed") and not f.get("truncated"):
-            add("udp.src_port", f.get("src_port", 0))
-            add("udp.dst_port", f.get("dst_port", 0))
-            add("udp.length", f.get("length", 0))
-
-    elif "ICMP" in layer_map:
-        icmp_layer = layer_map["ICMP"]
-        f = icmp_layer.fields
-        # Included: type, code
-        # Excluded: checksum
-        if not f.get("malformed") and not f.get("truncated"):
-            add("icmp.type", f.get("type", 0))
-            add("icmp.code", f.get("code", 0))
+    # Preserve the v1 field order and names; transport checksums are excluded.
+    for name, value in _transport_invariants(layer_map):
+        add(name, value)
 
     if not parts:
         # IP layer was malformed/truncated — no usable fields
         return b"", []
 
     return b"".join(parts), fields_used
+
+
+def _transport_invariants(layer_map: dict[str, Layer]) -> list[tuple[str, object]]:
+    field_sets = {
+        "TCP": ("src_port", "dst_port", "seq"),
+        "UDP": ("src_port", "dst_port", "length"),
+        "ICMP": ("type", "code"),
+    }
+    for protocol, names in field_sets.items():
+        if protocol not in layer_map:
+            continue
+        fields = layer_map[protocol].fields
+        if fields.get("malformed") or fields.get("truncated"):
+            return []
+        return [(f"{protocol.lower()}.{name}", fields.get(name, 0)) for name in names]
+    return []
