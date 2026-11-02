@@ -72,7 +72,7 @@ variables at startup, not at runtime.
 
 ## 2. Probe and telemetry ingestion
 
-### Telemetry ingestion — raw TCP, port 9000 — **Proposed (by design; not HTTP)**
+### Telemetry ingestion — raw TCP, port 9000 — **Implemented (not HTTP)**
 
 Probes open one persistent TCP connection to the central server and stream
 fixed-size 24-byte telemetry records after a 16-byte connection preamble.
@@ -82,10 +82,17 @@ in [data contract §4](data_contract.md). Summary:
 | Concern | Behavior |
 | --- | --- |
 | Framing | Preamble (magic `MSHK`, version, record size, probe clock hint) then fixed 24-byte records; partial records buffered across reads |
-| Authentication | Optional shared token in the preamble (config-driven); no TLS (documented limitation) |
+| Authentication | No authentication or TLS in v1; deploy internally |
 | Validation | Version/size checked at preamble; per-record field bounds; implausible timestamps flagged, not dropped |
-| Malformed input | Unknown version or size → connection closed with error preamble + server log; bounded buffers guard floods |
-| Heartbeat | Type-3 summary record every 5 s (default) drives probe liveness; missed heartbeats flip probe status to offline |
+| Malformed input | Unknown version/type/size, nonzero reserved bytes or invalid/changing identity → logged and connection closed; no error reply |
+| Heartbeat | Explicit type-3 heartbeat; probe runtime should schedule every 5 s while idle. 15 s without valid traffic degrades; 30 s read timeout closes |
+
+Run `python -m backend.e3_flows --host 0.0.0.0 --port 9000`; emitted
+`CorrelationRecord` objects are printed as JSON lines. The library exposes
+`engine.subscribe(callback)`, `engine.get_stats()` and `server.get_status()`
+for future E4 integration. These are in-process interfaces, not implemented
+REST routes. `get_stats()` includes cumulative timeout events, late recoveries,
+uncorrected unmatched events, capacity evictions and bounded-structure sizes.
 
 There is deliberately **no** `POST /telemetry`-style HTTP endpoint: TCP
 ingestion is the contract, and adding a second ingestion path would create
