@@ -164,7 +164,50 @@ export default function MiniShark() {
       ws.onclose   = () => { setWsOk(false); setTimeout(connect, 8001) }
       ws.onerror   = () => ws.close()
       ws.onmessage = ({ data }) => {
-        try { const m = JSON.parse(data); if (m.type === 'metrics') setWsStats(m.stats) } catch {}
+        try {
+          const m = JSON.parse(data)
+          if (m.type === 'metrics') {
+            setWsStats(m.stats)
+          } else if (m.type === 'correlation') {
+            // Live multi-probe cross-hop correlated packet stream!
+            const newPkt = {
+              index: m.probe1_seq || m.probe2_seq || (Date.now() % 100000),
+              timestamp: m.delay_ms != null ? (m.delay_ms / 1000.0) : 0.0,
+              src_ip: m.probe1_seq != null ? 'Probe-1 (Client)' : 'Unknown',
+              dst_ip: m.probe2_seq != null ? 'Probe-2 (Server)' : 'LOST ON WIRE',
+              src_port: '',
+              dst_port: '',
+              protocol: m.match_state === 'matched' ? 'TCP' : 'LOSS',
+              length: 24,
+              info: m.match_state === 'matched'
+                ? `[MATCHED] Wire transit delay ΔT = ${m.delay_ms} ms`
+                : `[${m.match_state.toUpperCase()}] Packet lost on wire transit link`,
+              fingerprint: m.fingerprint,
+              layers: [
+                {
+                  name: 'Mini-Shark Correlation Layer',
+                  fields: {
+                    match_state: m.match_state,
+                    fingerprint: m.fingerprint,
+                    delay_ms: m.delay_ms,
+                    probe1_seq: m.probe1_seq,
+                    probe2_seq: m.probe2_seq,
+                    flags: m.flags,
+                  }
+                }
+              ]
+            }
+            setPackets(prev => {
+              const next = [...prev, newPkt]
+              return next.length > 5000 ? next.slice(-5000) : next
+            })
+            if (autoScroll.current && tableRef.current) {
+              tableRef.current.scrollTop = tableRef.current.scrollHeight
+            }
+          }
+        } catch (err) {
+          console.error('WS parse error:', err)
+        }
       }
     }
     connect()
