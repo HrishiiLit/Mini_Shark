@@ -260,6 +260,78 @@ def get_packet_tree(capture_id: int, packet_index: int) -> dict[str, Any]:
             "layers": [_layer_dict(l) for l in layers]}
 
 
+@router.get("/captures/{capture_id}/inspector")
+def get_inspector(
+    capture_id: int,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict[str, Any]:
+    """Wireshark-style packet list with dissected layers for every packet."""
+    _require_capture(capture_id)
+    packets  = get_engine().packets(capture_id, offset=offset, limit=limit)
+    result   = []
+    for pkt in packets:
+        layers = get_engine().tree(capture_id, pkt.index)
+
+        # Extract summary fields from layers
+        src_ip = dst_ip = src_port = dst_port = protocol = info = ""
+        for layer in layers:
+            f = layer.fields
+            if layer.name in ("IPv4", "IPv6") and not src_ip:
+                src_ip   = str(f.get("src", ""))
+                dst_ip   = str(f.get("dst", ""))
+                protocol = layer.name
+            if layer.name == "TCP" and not src_port:
+                src_port = str(f.get("src_port", ""))
+                dst_port = str(f.get("dst_port", ""))
+                protocol = "TCP"
+                flags    = f.get("flags", 0)
+                flag_str = _tcp_flags(flags)
+                info     = f"Seq={f.get('seq','')} Ack={f.get('ack','')} Win={f.get('window','')} [{flag_str}]"
+            if layer.name == "UDP" and not src_port:
+                src_port = str(f.get("src_port", ""))
+                dst_port = str(f.get("dst_port", ""))
+                protocol = "UDP"
+                info     = f"Len={f.get('length','')}"
+            if layer.name == "DNS":
+                protocol = "DNS"
+                qs       = f.get("questions", [])
+                qname    = qs[0].get("name","") if qs else ""
+                rtype    = "Response" if f.get("response") else "Query"
+                info     = f"{rtype}: {qname}"
+            if layer.name == "HTTP":
+                protocol = "HTTP"
+                info     = f.get("start_line", "")
+            if layer.name == "ICMP":
+                protocol = "ICMP"
+                info     = f"Type={f.get('type','')} Code={f.get('code','')}"
+            if layer.name == "ARP":
+                protocol = "ARP"
+                info     = f"Who has {f.get('dst_ip','')}? Tell {f.get('src_ip','')}"
+
+        result.append({
+            "index":      pkt.index,
+            "timestamp":  round(pkt.timestamp, 6),
+            "length":     pkt.length,
+            "src_ip":     src_ip,
+            "dst_ip":     dst_ip,
+            "src_port":   src_port,
+            "dst_port":   dst_port,
+            "protocol":   protocol,
+            "info":       info,
+            "layer_names":[l.name for l in layers],
+            "layers":     [_layer_dict(l) for l in layers],
+        })
+    return {"capture_id": capture_id, "offset": offset,
+            "count": len(result), "packets": result}
+
+
+def _tcp_flags(flags: int) -> str:
+    names = [(0x002,"SYN"),(0x010,"ACK"),(0x001,"FIN"),
+             (0x004,"RST"),(0x008,"PSH"),(0x020,"URG")]
+    return " ".join(n for bit,n in names if flags & bit)
+
+
 @router.get("/captures/{capture_id}/flows")
 def get_flows(capture_id: int,
               limit: int = Query(100, ge=1, le=1000)) -> dict[str, Any]:
@@ -304,21 +376,25 @@ def list_filter_fields() -> dict[str, Any]:
 # Live capture route
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@router.post("/captures/live")
+@router.get("/captures/live")
 def live_capture(
-    count: int = Query(default=20, ge=1, le=500),
-    iface: str | None = Query(default=None),
-    bpf_filter: str = Query(default=""),
-    timeout: int = Query(default=15, ge=1, le=60),
+    timeout: int = Query(default=30, ge=1, le=300, description="Capture for this many seconds"),
+    iface: str | None = Query(default=None, description="Network interface (default: auto)"),
+    bpf_filter: str = Query(default="", description="BPF filter e.g. 'tcp' or 'port 53'"),
     persist: bool = Query(default=True, description="Save to database"),
 ) -> dict[str, Any]:
-    """Capture live packets → E1 → E2 → E3 → E4 pipeline."""
+    """Capture live packets for *timeout* seconds → E1 → E2 → E3 → E4.
+
+    No packet count limit — captures everything that arrives within the timeout.
+    Requires Npcap and Administrator privileges.
+    """
     if not _SCAPY_AVAILABLE:
         raise HTTPException(status_code=503,
                             detail="scapy not installed: pip install scapy")
     try:
         capturer = LiveCapture(iface=iface, timeout=timeout)
-        packets = capturer.capture(count=count, bpf_filter=bpf_filter)
+        # count=5000 is a safety ceiling; timeout is the real stop condition
+        packets = capturer.capture(count=5000, bpf_filter=bpf_filter)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -376,6 +452,131 @@ def live_capture(
         "alerts": [_alert_dict(a) for a in alerts],
         "packets": packet_summaries,
     }
+
+
+@router.get("/captures/stream")
+async def stream_live(
+    iface: str | None = Query(default=None),
+    bpf_filter: str = Query(default=""),
+) -> Any:
+    """SSE endpoint — streams live packets one by one as they arrive.
+
+    The browser connects once and receives a continuous stream of JSON events.
+    Each event is one decoded packet. The stream runs until the client disconnects.
+
+    Event format (text/event-stream):
+        data: {"index":0,"timestamp":...,"src_ip":...,"protocol":...,...}
+    """
+    from fastapi.responses import StreamingResponse
+
+    if not _SCAPY_AVAILABLE:
+        raise HTTPException(status_code=503, detail="scapy not installed")
+
+    dissector = ProtocolDissector()
+
+    async def event_generator():
+        """Yield SSE events indefinitely until client disconnects."""
+        from backend.e1_capture.live import _pick_interface
+        try:
+            from scapy.all import sniff, conf
+        except ImportError:
+            yield "data: {\"error\": \"scapy not available\"}\n\n"
+            return
+
+        selected_iface = _pick_interface(iface)
+        index = 0
+
+        # Send a "started" event so the frontend knows capture began
+        yield f"data: {json.dumps({'type':'started','interface': selected_iface})}\n\n"
+
+        # Capture in small bursts (1-2s) so we can yield between batches
+        # and check if the client is still connected
+        while True:
+            try:
+                # Capture up to 50 packets or 2 seconds, whichever comes first
+                raw_pkts = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: sniff(
+                        iface=selected_iface,
+                        count=50,
+                        timeout=2,
+                        filter=bpf_filter if bpf_filter else None,
+                        store=True,
+                    )
+                )
+            except Exception as exc:
+                yield f"data: {json.dumps({'type':'error','message': str(exc)})}\n\n"
+                return
+
+            for sp in raw_pkts:
+                try:
+                    raw = bytes(sp)
+                    ts  = float(sp.time) if hasattr(sp, 'time') else time.time()
+                except Exception:
+                    continue
+
+                pkt     = Packet(index=index, timestamp=ts, length=len(raw), raw_bytes=raw)
+                decoded = dissector.dissect_one(pkt)
+
+                # Build summary
+                src_ip = dst_ip = src_port = dst_port = protocol = info = ""
+                for layer in decoded.layers:
+                    f = layer.fields
+                    if layer.name in ("IPv4","IPv6") and not src_ip:
+                        src_ip, dst_ip, protocol = str(f.get("src","")), str(f.get("dst","")), layer.name
+                    if layer.name == "TCP" and not src_port:
+                        src_port, dst_port, protocol = str(f.get("src_port","")), str(f.get("dst_port","")), "TCP"
+                        info = f"Seq={f.get('seq','')} [{_tcp_flags(f.get('flags',0))}]"
+                    if layer.name == "UDP" and not src_port:
+                        src_port, dst_port, protocol = str(f.get("src_port","")), str(f.get("dst_port","")), "UDP"
+                    if layer.name == "DNS":
+                        protocol = "DNS"
+                        qs   = f.get("questions",[])
+                        info = f"{'Response' if f.get('response') else 'Query'}: {qs[0].get('name','') if qs else ''}"
+                    if layer.name == "HTTP":
+                        protocol = "HTTP"
+                        info = f.get("start_line","")
+                    if layer.name == "ICMP":
+                        protocol = "ICMP"
+                        info = f"Type={f.get('type','')} Code={f.get('code','')}"
+                    if layer.name == "ARP":
+                        protocol = "ARP"
+                        info = f"Who has {f.get('dst_ip','')}? Tell {f.get('src_ip','')}"
+
+                event = {
+                    "type":      "packet",
+                    "index":     index,
+                    "timestamp": round(ts, 6),
+                    "length":    len(raw),
+                    "src_ip":    src_ip,
+                    "dst_ip":    dst_ip,
+                    "src_port":  src_port,
+                    "dst_port":  dst_port,
+                    "protocol":  protocol,
+                    "info":      info,
+                    "layer_names": [l.name for l in decoded.layers],
+                    "layers":    [_layer_dict(l) for l in decoded.layers],
+                    "fingerprint": f"0x{decoded.fingerprint.value:016X}" if decoded.fingerprint else None,
+                }
+                if decoded.dns_entropy is not None:
+                    event["dns_entropy"]      = round(decoded.dns_entropy, 4)
+                    event["dns_exfil_suspect"] = decoded.dns_entropy > 4.2
+
+                yield f"data: {json.dumps(event)}\n\n"
+                index += 1
+
+            # Small heartbeat so client knows we're alive
+            yield f"data: {json.dumps({'type':'heartbeat','total': index})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

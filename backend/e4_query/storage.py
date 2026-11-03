@@ -200,9 +200,17 @@ def row_to_flow(row: sqlite3.Row) -> Flow:
     )
 
 
+def _fp_to_db(fp: int) -> int:
+    """Store uint64 fingerprint as signed int64 for SQLite compatibility."""
+    return fp if fp < 2**63 else fp - 2**64
+
+def _fp_from_db(fp: int) -> int:
+    """Restore uint64 from signed int64."""
+    return fp if fp >= 0 else fp + 2**64
+
 def row_to_corr(row: sqlite3.Row) -> CorrelationRecord:
     return CorrelationRecord(
-        fingerprint=row["fingerprint"],
+        fingerprint=_fp_from_db(row["fingerprint"]),
         probe1_observed=bool(row["probe1_observed"]),
         probe2_observed=bool(row["probe2_observed"]),
         match_state=row["match_state"],
@@ -307,7 +315,7 @@ class CaptureStore:
                 cur = self._conn.execute(
                     _INSERT_CORR,
                     (
-                        record.fingerprint,
+                        _fp_to_db(record.fingerprint),
                         int(record.probe1_observed),
                         int(record.probe2_observed),
                         record.match_state,
@@ -333,7 +341,7 @@ class CaptureStore:
                     _INSERT_CORR,
                     [
                         (
-                            r.fingerprint, int(r.probe1_observed),
+                            _fp_to_db(r.fingerprint), int(r.probe1_observed),
                             int(r.probe2_observed), r.match_state,
                             r.deadline_ns, r.created_at_ns,
                             r.t1_ns, r.t2_ns, r.delay_ns,
@@ -357,7 +365,7 @@ class CaptureStore:
                         alert.confidence,
                         alert.detected_at_ns,
                         alert.recommended_action,
-                        json.dumps(alert.evidence_refs),
+                        json.dumps([_fp_to_db(f) if isinstance(f,int) else f for f in alert.evidence_refs]),
                         json.dumps(alert.metrics),
                     ),
                 )
@@ -375,7 +383,8 @@ class CaptureStore:
                         (
                             a.category, a.severity, a.confidence,
                             a.detected_at_ns, a.recommended_action,
-                            json.dumps(a.evidence_refs), json.dumps(a.metrics),
+                            json.dumps([_fp_to_db(f) if isinstance(f,int) else f for f in a.evidence_refs]),
+                            json.dumps(a.metrics),
                         )
                         for a in alerts
                     ],

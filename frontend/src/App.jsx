@@ -1,7 +1,3 @@
-import { useState } from 'react'
-import Dashboard from './components/Dashboard'
+import MiniShark from './components/MiniShark'
 import './index.css'
-
-export default function App() {
-  return <Dashboard />
-}
+export default function App() { return <MiniShark /> }
