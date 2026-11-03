@@ -137,6 +137,51 @@ class ProbeTelemetry:
 
 
 @dataclass(frozen=True)
+class CorrelationRecord:
+    """E3 → E4 — result of matching one packet observed at both probes.
+
+    match_state: 'matched' | 'late' | 'unmatched' | 'probe2_only'
+    flags      : bitmask  CLOCK_SKEW_SUSPECT=1, COLLISION_DISAMBIGUATED=2,
+                          FRAGMENT=4, DUPLICATE_T2_IGNORED=8,
+                          FINGERPRINT_VERSION_MISMATCH=16
+    delay_ns   : signed — negative values are valid (clock skew) and flagged
+    """
+
+    fingerprint: int               # uint64 correlation key
+    probe1_observed: bool
+    probe2_observed: bool
+    match_state: str               # matched / late / unmatched / probe2_only
+    deadline_ns: int               # T1 + timeout
+    created_at_ns: int
+    t1_ns: int | None = None
+    t2_ns: int | None = None
+    delay_ns: int | None = None    # signed int64
+    flags: int = 0
+    probe1_seq: int | None = None
+    probe2_seq: int | None = None
+
+
+@dataclass(frozen=True)
+class DiagnosticAlert:
+    """E4 — deterministic root-cause alert with evidence.
+
+    category   : PACKET_LOSS | BUFFERBLOAT | APP_FREEZE | DNS_EXFIL_SUSPECTED
+    severity   : info | warning | critical
+    confidence : high | medium | low
+    """
+
+    category: str
+    severity: str
+    confidence: str
+    detected_at_ns: int
+    recommended_action: str
+    evidence_refs: list[int] = field(default_factory=list)   # fingerprint values
+    metrics: dict[str, float] = field(default_factory=dict)
+    alert_id: int | None = None
+    resolved_at_ns: int | None = None
+
+
+@dataclass(frozen=True)
 class Flow:
     """Engine E3 - grouping of packets into a flow.
 
