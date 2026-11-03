@@ -1,3 +1,22 @@
+from __future__ import annotations
+
+import sys
+if sys.version_info >= (3, 11):
+    _async_timeout = asyncio.timeout
+else:
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def _async_timeout(delay):
+        loop = asyncio.get_running_loop()
+        task = asyncio.current_task()
+        handle = loop.call_later(delay, task.cancel)
+        try:
+            yield
+        except asyncio.CancelledError:
+            raise asyncio.TimeoutError() from None
+        finally:
+            handle.cancel()
+
 """TCP Telemetry Ingestion Service (Engine E3) — Port 9000.
 
 Implements the persistent TCP ingestion service specified in data_contract.md §4
@@ -11,7 +30,6 @@ and api_routes.md §2:
   - Provides a reusable TelemetryClient for probes and tests.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging
@@ -165,12 +183,12 @@ class TelemetryServer:
         try:
             if not accepted:
                 raise ValueError("connection limit reached")
-            async with asyncio.timeout(self.idle_timeout_s):
+            async with _async_timeout(self.idle_timeout_s):
                 raw = await reader.readexactly(PREAMBLE_SIZE)
             preamble = TelemetryPreamble.unpack(raw)
             clock_offset = time.time() - preamble.probe_clock_epoch_s
             while self._is_running:
-                async with asyncio.timeout(self.idle_timeout_s):
+                async with _async_timeout(self.idle_timeout_s):
                     raw = await reader.readexactly(RECORD_SIZE)
                 record = ProbeTelemetry.unpack(raw)
                 self._validate_record(record, probe_id_assigned, writer)
