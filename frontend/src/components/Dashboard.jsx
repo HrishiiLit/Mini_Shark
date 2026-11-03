@@ -5,8 +5,8 @@ import {
 } from 'recharts'
 import PacketInspector from './PacketInspector'
 
-const API = 'http://127.0.0.1:3000'
-const WS  = 'ws://127.0.0.1:3000/ws/live'
+const API = 'http://127.0.0.1:8001'
+const WS  = 'ws://127.0.0.1:8001/ws/live'
 
 const S = {
   page:    { maxWidth: 1280, margin: '0 auto', padding: '16px' },

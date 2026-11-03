@@ -26,8 +26,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-const API = 'http://127.0.0.1:3000'
-const WS  = 'ws://127.0.0.1:3000/ws/live'
+const API = 'http://127.0.0.1:8001'
+const WS  = 'ws://127.0.0.1:8001/ws/live'
 
 /* ── Wireshark row colours ─────────────────────────────────────────────────── */
 const ROW_COLOR = {
@@ -163,7 +163,7 @@ export default function MiniShark() {
       const ws = new WebSocket(WS)
       wsRef.current = ws
       ws.onopen    = () => setWsOk(true)
-      ws.onclose   = () => { setWsOk(false); setTimeout(connect, 3000) }
+      ws.onclose   = () => { setWsOk(false); setTimeout(connect, 8001) }
       ws.onerror   = () => ws.close()
       ws.onmessage = ({ data }) => {
         try { const m = JSON.parse(data); if (m.type === 'metrics') setWsStats(m.stats) } catch {}

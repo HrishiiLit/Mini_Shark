@@ -3,13 +3,13 @@
 On startup, automatically launches the E3 TCP ingestion server on port 9000
 as a background asyncio task. This means running one command:
 
-    uvicorn backend.main:app --reload --port 3000
+    uvicorn backend.main:app --reload --port 8001
 
-...starts BOTH the REST/WebSocket API (port 3000) AND the E3 probe
+...starts BOTH the REST/WebSocket API (port 8001) AND the E3 probe
 ingestion server (port 9000) in a single process, sharing one
 CorrelationHub instance.
 
-Probes then connect to port 9000 and the dashboard connects to port 3000.
+Probes then connect to port 9000 and the dashboard connects to port 8001.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     logger.info("E3 telemetry ingestion server started on %s:%d", E3_HOST, E3_PORT)
     print(f"\n  [E3] TCP ingestion server listening on {E3_HOST}:{E3_PORT}")
     print(f"  [E3] Probes should connect to this port")
-    print(f"  [API] REST + WebSocket available on port 3000\n")
+    print(f"  [API] REST + WebSocket available on port 8001\n")
 
     yield   # FastAPI runs here
 
@@ -79,7 +79,7 @@ app = FastAPI(
     title="Mini Shark",
     description=(
         "Distributed Multi-Point Latency & Packet Loss Tracing System. "
-        "E3 TCP ingestion: port 9000. REST/WebSocket API: port 3000."
+        "E3 TCP ingestion: port 9000. REST/WebSocket API: port 8001."
     ),
     version="0.4.0",
     lifespan=lifespan,
@@ -127,7 +127,7 @@ async def system_status() -> dict:
     alerts   = engine.alerts(limit=5)
 
     return {
-        "api_port":  3000,
+        "api_port":  8001,
         "e3_port":   E3_PORT,
         "hub_stats": hub.stats,
         "database":  db_stats,
