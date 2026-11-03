@@ -11,13 +11,11 @@ appear at the destination probe within a 500 ms timeout, classifies the
 resulting diagnostic conditions, persists everything in SQLite, and presents
 live and historical results through a React dashboard.
 
-> **Status note.** The repository currently contains a **working offline
-> PCAP/PCAPNG analysis pipeline** (the Phase-1 foundation and starter engines
-> described below) with 47 passing unit tests. The distributed live-capture
-> architecture described in this document is the **agreed target design**
-> (per the final project presentation); most of its components are **planned,
-> not yet implemented**. See [Current implementation status](#current-implementation-status)
-> for exactly what works today.
+> **Status note (2 November 2026).** Offline analysis, batch Scapy/Npcap capture,
+> E2 fingerprinting/entropy and the standalone E3 TCP correlation hub are
+> implemented. Phase 2's bounded ring-buffer pipeline remains incomplete;
+> distributed diagnostics, persistence and dashboard are planned. See
+> [verification and results](phase4-verification.md) for actual checks and gaps.
 
 ## Problem statement and motivation
 
@@ -129,21 +127,20 @@ contract seams.
 
 | Component | Technology | State |
 | --- | --- | --- |
-| Packet capture & processing | Python 3.11+ (raw-packet capture mechanism per E1 plan; `dpkt` retained for offline PCAP/PCAPNG parsing) | Offline parsing implemented; live capture planned |
+| Packet capture & processing | Python 3.11+, dpkt offline, Scapy/Npcap batch capture | Implemented; bounded capture pipeline pending |
 | Central backend | Python + FastAPI + uvicorn | HTTP API implemented (offline routes); live routes planned |
-| Correlation structures | In-memory hash table + binary min-heap (`heapq`) | Planned |
-| Telemetry transport | Raw TCP, **port 9000**, fixed-size records, big-endian | Planned |
+| Correlation structures | FIFO hash buckets + binary min-heap (`heapq`) | Implemented; bounded retention |
+| Telemetry transport | Raw TCP, **port 9000**, fixed-size records, big-endian | Implemented |
 | Persistence | SQLite (`minishark.db`) | SQLite implemented for offline analysis; distributed schema planned |
 | Live updates | FastAPI WebSockets | Planned |
 | Frontend | React | Planned (not started) |
 | Dashboard-facing service | **Port 8000** | Dev server runs here today |
-| Testing | pytest (`tests/unit/`), hand-built byte-level fixtures | 47 unit tests passing |
+| Testing | pytest (`tests/unit/`), byte-level fixtures and real TCP integration | See current verification report |
 | Workflow | Git + GitHub, `ruff` + `black` via pre-commit, GitHub Actions CI | Configured (see CI note in [CONTRIBUTING.md](CONTRIBUTING.md)) |
 
-No new dependencies are required for the fingerprint (Python's `hashlib`
-provides BLAKE2b with an 8-byte digest). The live-capture mechanism for E1
-(raw `AF_PACKET` sockets on Linux vs. a libpcap binding) is an open decision
-recorded in [implementation.md](implementation.md).
+No new dependencies are required for BLAKE2b or the asyncio TCP hub. Install
+`pip install -e '.[live]'` for Scapy batch capture (Npcap additionally required
+on Windows). The planned bounded distributed capture path remains open.
 
 ## Academic concepts demonstrated
 
@@ -160,19 +157,17 @@ recorded in [implementation.md](implementation.md).
 Mini_Shark/
 ├── backend/
 │   ├── main.py           # FastAPI entrypoint (offline routes + GET /health)
-│   ├── models.py         # shared dataclasses: Packet, Layer, DecodedPacket, Flow
+│   ├── models.py         # offline models, fingerprint, telemetry, correlation
 │   ├── interfaces.py     # abstract EngineE1–EngineE4
 │   ├── errors.py         # typed engine errors
 │   ├── pipeline.py       # offline pipeline: E1 → E2 → E3 → E4 in one call
 │   ├── e1_capture/       # implemented: PCAP/PCAPNG loading (offline mode)
 │   ├── e2_dissection/    # implemented: dissector registry + protocol dissectors
-│   ├── e3_flows/         # implemented: five-tuple flow grouping (legacy analytics)
+│   ├── e3_flows/         # offline grouping + TCP ingestion/correlation hub
 │   ├── e4_query/         # implemented: SQLite storage + filter compiler
 │   └── api/              # HTTP routes (thin: validate, call an engine, serialise)
 ├── tests/
-│   ├── unit/             # 47 unit tests (+ helpers.py byte-level frame builders)
-│   ├── data/             # controlled PCAP/PCAPNG fixtures (currently empty)
-│   └── expected/         # expected-output placeholders (currently unused)
+│   └── unit/             # unit + TCP integration tests and byte-level helpers
 ├── docs/                 # this README, implementation plan, data contract,
 │                         # API design, contributing guide, final presentation
 ├── .github/workflows/    # CI: pre-commit (ruff, black) + pytest
@@ -181,9 +176,8 @@ Mini_Shark/
 └── run.sh                # create venv, install deps, start the dev server
 ```
 
-Planned additions (not yet present): probe runtime (E1/E2 on each probe), the
-TCP telemetry ingestion service (E3), the correlation/diagnostic services and
-extended SQLite schema (E4), and `frontend/` (React dashboard).
+Planned additions: continuous bounded probe runtime (E1/E2 on each probe),
+diagnostic services and extended SQLite schema (E4), and `frontend/` (React).
 
 ## Prerequisites and setup
 
@@ -216,16 +210,16 @@ curl http://127.0.0.1:8000/health     # → {"status":"ok"}
 
 ## Configuration
 
-Deployment-sensitive values must be configuration, not scattered hard-coded
-constants. The names below are **proposed** (only the database variable is
-read by code today):
+The standalone E3 CLI reads telemetry host, port and match timeout from these
+environment variables; CLI options override them. Remaining live settings are
+proposed unless marked implemented.
 
 | Setting | Proposed variable | Default | Used by | State |
 | --- | --- | --- | --- | --- |
 | API / dashboard port | `MINISHARK_API_PORT` | `8000` | uvicorn, E4, dashboard | Proposed (uvicorn CLI today) |
-| Telemetry ingestion host | `MINISHARK_TELEMETRY_HOST` | `0.0.0.0` | E3 TCP service | Proposed |
-| Telemetry ingestion port | `MINISHARK_TELEMETRY_PORT` | `9000` | E3 TCP service, probes | Proposed |
-| Telemetry record timeout | `MINISHARK_MATCH_TIMEOUT_MS` | `500` | E3 expiration | Proposed |
+| Telemetry ingestion host | `MINISHARK_TELEMETRY_HOST` | `0.0.0.0` | E3 CLI | Implemented |
+| Telemetry ingestion port | `MINISHARK_TELEMETRY_PORT` | `9000` | E3 CLI | Implemented |
+| Telemetry record timeout | `MINISHARK_MATCH_TIMEOUT_MS` | `500` | E3 CLI | Implemented |
 | Ring-buffer capacity | `MINISHARK_RING_SLOTS` | `10000` | E1 | Proposed |
 | Probe identity | `MINISHARK_PROBE_ID` | `1` / `2` | E1/E2 | Proposed |
 | Database path | `MINI_SHARK_DB` | `mini_shark.db` | E4 (SQLite) | **Implemented** (offline storage) |
@@ -244,12 +238,25 @@ uvicorn backend.main:app --reload        # API on http://127.0.0.1:8000
 curl -F "file=@capture.pcap" http://127.0.0.1:8000/captures   # analyze a capture
 ```
 
-### Planned (live distributed mode) — design only, not yet implemented
+### Implemented E3 hub and synthetic demo
+
+```bash
+pip install -e '.[dev]'                 # tests and quality tooling
+python -m backend.e3_flows --port 9000  # standalone hub, JSON-line events
+python demo_e3.py                      # self-contained hub + two synthetic probes
+python benchmark_e3.py --packets 20000 --runs 3
+```
+
+Run the demo separately: it starts its own server and uses a free port if 9000
+is busy. Real probe integrations use `ProtocolDissector.make_telemetry` and
+`TelemetryClient`; a continuous E1/E2 probe runtime remains planned.
+
+### Planned full distributed mode — design only
 
 ```bash
 # On the central server (once implemented):
 uvicorn backend.main:app --port 8000     # REST + WebSocket for the dashboard
-python -m backend.e3_correlation         # TCP telemetry ingestion on :9000
+python -m backend.e3_flows               # implemented TCP service on :9000
 
 # On each probe host (once implemented):
 python -m backend.probe --probe-id 1 --server <central-host>:9000
@@ -265,16 +272,14 @@ The exact launch commands are part of the Phase 2–6 plans in
 ## Running tests and quality checks
 
 ```bash
-pytest                    # unit tests in tests/unit (47 currently)
+pytest                    # unit and TCP integration tests
 ruff check .              # lint
 black .                   # format
 pre-commit run --all-files
 ```
 
-CI (`.github/workflows/ci.yml`) runs pre-commit (ruff + black) and pytest.
-Note: CI currently triggers on the branch name `main` while the repository's
-default branch is `master`; this pre-existing mismatch is documented in
-[CONTRIBUTING.md](CONTRIBUTING.md).
+CI (`.github/workflows/ci.yml`) runs pre-commit (ruff + black) and pytest for
+both `master` and `main`, installing the project's development extra.
 
 ## API, ports and documentation
 
@@ -282,7 +287,7 @@ default branch is `master`; this pre-existing mismatch is documented in
 | --- | --- | --- | --- |
 | Dashboard-facing REST API | 8000 | HTTP (FastAPI) | Offline-analysis routes implemented; live-metrics/diagnostics routes proposed |
 | Live dashboard stream | 8000 | WebSocket (FastAPI) | Proposed |
-| Probe telemetry ingestion | 9000 | Raw TCP, fixed 24-byte records | Proposed |
+| Probe telemetry ingestion | 9000 | Raw TCP, fixed 24-byte records | Implemented standalone E3 service |
 
 Full endpoint designs, payloads, error handling and WebSocket message types:
 [api_routes.md](api_routes.md). Shared structures and the telemetry wire
@@ -299,16 +304,16 @@ format: [data_contract.md](data_contract.md).
 
 | Area | State |
 | --- | --- |
-| Data contract — `backend/models.py` | **Implemented (offline models):** frozen dataclasses `Packet`, `Layer`, `DecodedPacket`, `Flow`. Distributed structures (`PacketFingerprint`, `ProbeTelemetry`, `CorrelationRecord`, `DiagnosticAlert`) are **proposed** in the data contract. |
+| Data contract — `backend/models.py` | Offline models, `PacketFingerprint`, `ProbeTelemetry`, `TelemetryPreamble`, `CorrelationRecord` implemented. `CapturedPacket` and `DiagnosticAlert` remain proposed. |
 | Engine interfaces — `backend/interfaces.py` | **Implemented** for the offline pipeline (`load_capture` → `dissect` → `group` → `store`/`query`). Live-mode interfaces (capture loop, telemetry stream, correlation callbacks) are **planned**. |
-| E1 capture | **Partial:** offline PCAP/PCAPNG loading with strict validation. **Not implemented:** live capture, producer thread, ring buffer, capture-error/shutdown handling. |
-| E2 dissection | **Partial:** Ethernet/VLAN/ARP/IPv4/IPv6/TCP/UDP/ICMP/DNS/HTTP dissectors. **Not implemented:** invariant-field selection, 64-bit fingerprint, DNS entropy. |
-| E3 correlation | **Not implemented.** Current `backend/e3_flows/` contains the legacy five-tuple flow grouper (supplementary analytics), not the correlation hub. No TCP ingestion, hash-table matching, or min-heap timer exists. |
+| E1 capture | **Partial:** offline PCAP/PCAPNG and Scapy/Npcap batch capture. Continuous bounded producer/consumer capture remains planned; physical NIC capture unverified in this audit. |
+| E2 dissection | Dissection, invariant BLAKE2b v1, entropy and telemetry implemented; fragment/ICMPv6 fingerprints are weak and performance qualification remains open. |
+| E3 correlation | Implemented standalone TCP hub: bounded FIFO/hash matching, deadline heap, late corrections, duplicate suppression, clock flags and event callbacks. Offline flow grouper retained. |
 | E4 diagnostics/storage/UI | **Partial:** SQLite persistence + parameterised filter language for offline analysis; REST routes work. **Not implemented:** diagnostic rule engine, distributed schema (`probes`, `diagnostic_alerts`), WebSocket streaming, React dashboard. |
-| Telemetry (TCP :9000) | **Not implemented.** Record layout designed in the data contract. |
-| Tests | **Implemented:** 47 unit tests passing (verified locally). Cross-engine integration tests for the distributed pipeline: **planned**. |
+| Telemetry (TCP :9000) | Implemented preamble, strict record validation, heartbeats, identity checks, read timeouts and graceful shutdown. |
+| Tests | Offline, fingerprint, correlation, real TCP and E2-to-E3 integration tests. Current results in [verification report](phase4-verification.md). |
 | Frontend | **Not started.** |
-| Performance targets | **Not measured.** All figures below are design targets from the presentation. |
+| Performance | Synthetic E3 measured: median 25,460 direct / 13,839 TCP packet pairs per second. Other presentation figures remain targets. |
 
 ### Performance targets (design targets — not yet measured)
 
@@ -346,8 +351,8 @@ Known limitations of the current system and of the proposed design:
   false positives (e.g. high-entropy legitimate subdomains).
 - **Database file name** differs between the presentation (`minishark.db`) and
   the current code (`mini_shark.db`) — pending a team decision.
-- **CI branch mismatch:** CI triggers on `main`; the default branch is
-  `master`.
+- **Capture completion:** Scapy batch capture does not implement the planned
+  10,000-slot producer/consumer ring or demonstrate a sustained capture rate.
 
 ## Roadmap
 

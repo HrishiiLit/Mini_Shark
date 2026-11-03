@@ -28,6 +28,14 @@ class DissectionError(MiniSharkError):
     """E2 could not produce a protocol tree for a packet."""
 
 
+class TelemetryError(MiniSharkError):
+    """Base class for E3 telemetry ingestion and correlation errors."""
+
+
+class PreambleError(TelemetryError):
+    """Preamble magic, version or framing is invalid."""
+
+
 class StorageError(MiniSharkError):
     """E4 persistence failure; never claim data was stored when raised."""
 

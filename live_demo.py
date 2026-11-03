@@ -1,4 +1,4 @@
-"""
+r"""
 Mini-Shark — Live Capture Demo
 ================================
 Captures real packets from your Wi-Fi adapter, runs them through E2
@@ -16,8 +16,8 @@ Run as Administrator in the project root:
 from __future__ import annotations
 
 import argparse
-import sys
 import os
+import sys
 import time
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -27,16 +27,24 @@ from backend.e2_dissection.engine import ProtocolDissector
 from backend.e3_flows.engine import FlowGrouper
 
 DNS_EXFIL_THRESHOLD = 4.2
-SEP  = "─" * 68
+SEP = "─" * 68
 SEP2 = "═" * 68
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Mini-Shark live capture demo")
-    p.add_argument("--count",  type=int, default=20,   help="Packets to capture (default 20)")
-    p.add_argument("--iface",  type=str, default=None, help="Interface name (default: Wi-Fi)")
-    p.add_argument("--filter", type=str, default="",   help="BPF filter e.g. 'tcp' or 'port 53'")
-    p.add_argument("--timeout",type=int, default=20,   help="Capture timeout seconds (default 20)")
+    p.add_argument(
+        "--count", type=int, default=20, help="Packets to capture (default 20)"
+    )
+    p.add_argument(
+        "--iface", type=str, default=None, help="Interface name (default: Wi-Fi)"
+    )
+    p.add_argument(
+        "--filter", type=str, default="", help="BPF filter e.g. 'tcp' or 'port 53'"
+    )
+    p.add_argument(
+        "--timeout", type=int, default=20, help="Capture timeout seconds (default 20)"
+    )
     return p.parse_args()
 
 
@@ -45,16 +53,7 @@ def main() -> None:
 
     iface = _pick_interface(args.iface)
 
-    # Get friendly name for display
-    try:
-        from scapy.all import IFACES
-        friendly = next(
-            (getattr(e, "name", iface) for e in IFACES.values()
-             if getattr(e, "network_name", "") == iface),
-            iface
-        )
-    except Exception:
-        friendly = iface
+    friendly = _friendly_name(iface)
 
     print(f"\n{SEP2}")
     print("  Mini-Shark  |  Live Capture Demo  |  Engine E1 + E2")
@@ -74,7 +73,7 @@ def main() -> None:
 
     try:
         capturer = LiveCapture(iface=iface, timeout=args.timeout)
-        packets  = capturer.capture(count=args.count, bpf_filter=args.filter)
+        packets = capturer.capture(count=args.count, bpf_filter=args.filter)
     except RuntimeError as exc:
         print(f"\n  ERROR: {exc}")
         sys.exit(1)
@@ -86,52 +85,24 @@ def main() -> None:
     print(f"  [E1] Captured {len(packets)} packets in {elapsed:.1f}s\n")
 
     if not packets:
-        print("  No packets captured. Try generating some traffic or change the interface.")
+        print("  No packets captured. Generate traffic or change the interface.")
         sys.exit(0)
 
     # ── E2: Dissect + Fingerprint + Entropy ─────────────────────────────
     print("  [E2] Dissecting packets...\n")
     dissector = ProtocolDissector()
-    decoded   = dissector.dissect(packets)
+    decoded = dissector.dissect(packets)
 
     # ── E3: Flow grouping ───────────────────────────────────────────────
     flows = FlowGrouper().group(decoded, packets)
     stats = FlowGrouper.statistics(flows)
 
     # ── Print per-packet results ────────────────────────────────────────
-    dns_alerts  = []
+    dns_alerts = []
     fingerprints_seen: set[int] = set()
 
-    for pkt, dec in zip(packets, decoded):
-        layer_names = " > ".join(l.name for l in dec.layers)
-        ts = time.strftime("%H:%M:%S", time.localtime(pkt.timestamp))
-
-        fp_str = f"0x{dec.fingerprint.value:016X}" if dec.fingerprint else "none"
-
-        print(f"  [{ts}]  #{pkt.index:<3}  {pkt.length:>5}B  {layer_names}")
-        print(f"           fingerprint: {fp_str}")
-
-        if dec.dns_entropy is not None:
-            flag = "  *** HIGH ENTROPY — possible DNS tunnel!" if dec.dns_entropy > DNS_EXFIL_THRESHOLD else ""
-            print(f"           DNS entropy: H = {dec.dns_entropy:.4f}{flag}")
-            if dec.dns_entropy > DNS_EXFIL_THRESHOLD:
-                # find the query name for the alert
-                for layer in dec.layers:
-                    if layer.name == "DNS":
-                        qs = layer.fields.get("questions", [])
-                        if qs:
-                            dns_alerts.append((pkt.index, qs[0].get("name","?"), dec.dns_entropy))
-
-        if dec.fingerprint:
-            fingerprints_seen.add(dec.fingerprint.value)
-
-        # Build telemetry record
-        telemetry = dissector.make_telemetry(dec, pkt, probe_id=1, seq=pkt.index)
-        if telemetry:
-            raw = telemetry.pack()
-            print(f"           telemetry : [{raw.hex(' ').upper()}]  (24B -> E3)")
-
-        print()
+    for pkt, dec in zip(packets, decoded, strict=True):
+        _print_packet(pkt, dec, dissector, dns_alerts, fingerprints_seen)
 
     # ── Summary ─────────────────────────────────────────────────────────
     print(SEP2)
@@ -145,16 +116,14 @@ def main() -> None:
 
     # Protocol breakdown
     print("  Protocol breakdown:")
-    for proto, s in stats.items():
-        bar = "#" * int(s["share"] * 30)
-        print(f"    {proto:<12} {s['packets']:>4} pkts  {s['bytes']:>7}B  [{bar:<30}] {s['share']*100:.1f}%")
+    _print_protocols(stats)
     print()
 
     # DNS alerts
     if dns_alerts:
         print(f"  *** DNS EXFILTRATION ALERTS (H > {DNS_EXFIL_THRESHOLD}) ***")
-        for idx, name, H in dns_alerts:
-            print(f"    Packet #{idx}  name='{name}'  H={H:.4f}")
+        for idx, name, entropy in dns_alerts:
+            print(f"    Packet #{idx}  name='{name}'  H={entropy:.4f}")
         print()
     else:
         print("  No DNS exfiltration signals detected.")
@@ -166,11 +135,69 @@ def main() -> None:
         if flow.flow_id == -1:
             continue
         src, dst, sp, dp, proto = flow.five_tuple
-        print(f"    [{proto}] {src}:{sp} -> {dst}:{dp}  "
-              f"{flow.packet_count} pkts  {flow.byte_count}B  "
-              f"duration={flow.duration:.3f}s")
+        print(
+            f"    [{proto}] {src}:{sp} -> {dst}:{dp}  "
+            f"{flow.packet_count} pkts  {flow.byte_count}B  "
+            f"duration={flow.duration:.3f}s"
+        )
 
     print(f"\n{SEP2}\n")
+
+
+def _print_packet(pkt, dec, dissector, dns_alerts, fingerprints_seen):
+    layer_names = " > ".join(layer.name for layer in dec.layers)
+    ts = time.strftime("%H:%M:%S", time.localtime(pkt.timestamp))
+    fp_str = f"0x{dec.fingerprint.value:016X}" if dec.fingerprint else "none"
+    print(f"  [{ts}]  #{pkt.index:<3}  {pkt.length:>5}B  {layer_names}")
+    print(f"           fingerprint: {fp_str}")
+    _print_dns_signal(pkt, dec, dns_alerts)
+    if dec.fingerprint:
+        fingerprints_seen.add(dec.fingerprint.value)
+    telemetry = dissector.make_telemetry(dec, pkt, probe_id=1, seq=pkt.index)
+    if telemetry:
+        wire_hex = telemetry.pack().hex(" ").upper()
+        print(f"           telemetry : [{wire_hex}]  (24B -> E3)")
+    print()
+
+
+def _print_dns_signal(pkt, dec, dns_alerts):
+    if dec.dns_entropy is None:
+        return
+    high = dec.dns_entropy > DNS_EXFIL_THRESHOLD
+    flag = "  *** HIGH ENTROPY — possible DNS tunnel!" if high else ""
+    print(f"           DNS entropy: H = {dec.dns_entropy:.4f}{flag}")
+    if high:
+        for layer in dec.layers:
+            questions = layer.fields.get("questions", [])
+            if layer.name == "DNS" and questions:
+                dns_alerts.append(
+                    (pkt.index, questions[0].get("name", "?"), dec.dns_entropy)
+                )
+
+
+def _friendly_name(iface):
+    try:
+        from scapy.all import IFACES
+
+        return next(
+            (
+                getattr(entry, "name", iface)
+                for entry in IFACES.values()
+                if getattr(entry, "network_name", "") == iface
+            ),
+            iface,
+        )
+    except Exception:
+        return iface
+
+
+def _print_protocols(stats):
+    for proto, values in stats.items():
+        bar = "#" * int(values["share"] * 30)
+        print(
+            f"    {proto:<12} {values['packets']:>4} pkts  {values['bytes']:>7}B  "
+            f"[{bar:<30}] {values['share']*100:.1f}%"
+        )
 
 
 if __name__ == "__main__":

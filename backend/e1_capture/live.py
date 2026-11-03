@@ -23,8 +23,8 @@ from backend.models import Packet
 # Scapy import is deferred so that the rest of the project still imports
 # correctly on machines where scapy is not installed.
 try:
-    from scapy.all import sniff, get_if_list, conf
-    from scapy.layers.l2 import Ether
+    from scapy.all import conf, sniff
+
     _SCAPY_AVAILABLE = True
 except ImportError:
     _SCAPY_AVAILABLE = False
@@ -50,6 +50,7 @@ def _pick_interface(iface: str | None) -> str:
 
     try:
         from scapy.all import IFACES
+
         iface_list = list(IFACES.values())
     except Exception:
         return iface or conf.iface
@@ -71,8 +72,7 @@ def _pick_interface(iface: str | None) -> str:
             name = getattr(entry, "name", "")
             desc = getattr(entry, "description", "")
             if hint.lower() in name.lower() or hint.lower() in desc.lower():
-                network_name = getattr(entry, "network_name", name)
-                return network_name
+                return getattr(entry, "network_name", name)
 
     return conf.iface
 
@@ -80,7 +80,7 @@ def _pick_interface(iface: str | None) -> str:
 class LiveCapture:
     """Capture live packets from a network interface using scapy/Npcap.
 
-    This is the live-mode counterpart of :class:`~backend.e1_capture.engine.CaptureLoader`.
+    This is the live counterpart of the offline ``CaptureLoader``.
     Both return ``list[Packet]`` so downstream engines (E2, E3, E4) work
     identically regardless of whether data came from a file or the wire.
 
@@ -111,7 +111,7 @@ class LiveCapture:
         """Capture ``count`` packets from the live interface.
 
         Args:
-            count:      Number of packets to capture (1–5000).
+            count:      Number of packets to capture (1-5000).
             bpf_filter: Optional BPF filter string, e.g. ``"tcp"`` or
                         ``"port 53"``.  Empty string = capture everything.
 
@@ -134,7 +134,7 @@ class LiveCapture:
         kwargs: dict = {
             "iface": self.iface,
             "count": count,
-            "store": True,        # collect into a list, then iterate
+            "store": True,  # collect into a list, then iterate
         }
         if bpf_filter:
             kwargs["filter"] = bpf_filter

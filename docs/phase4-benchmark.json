@@ -1,0 +1,33 @@
+{
+  "python": "3.14.3",
+  "os": "Windows",
+  "packet_pairs_per_run": 20000,
+  "runs": 3,
+  "direct_pairs_per_second": [
+    45904.76688553956,
+    25459.979076868407,
+    22178.24768578864
+  ],
+  "tcp_pairs_per_second": [
+    11583.771460603766,
+    13838.706280722297,
+    13971.542203611009
+  ],
+  "direct_median_pairs_per_second": 25459.979076868407,
+  "tcp_median_pairs_per_second": 13838.706280722297,
+  "tcp_timeout_ms": 500,
+  "tcp_max_in_flight_pairs": 100,
+  "flood": {
+    "python_peak_bytes": 1071448,
+    "structures": {
+      "hash_entries": 1024,
+      "heap_entries": 1024,
+      "heap_cap": 1024,
+      "pending_probe2_entries": 1024,
+      "expired_cache_entries": 0,
+      "recent_match_entries": 1024,
+      "recent_cache_size": 1024
+    },
+    "capacity_evictions": 18976
+  }
+}

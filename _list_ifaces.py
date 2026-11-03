@@ -1,4 +1,5 @@
 from scapy.all import IFACES, conf
+
 print("Default:", conf.iface)
 print()
 for iface in IFACES.values():

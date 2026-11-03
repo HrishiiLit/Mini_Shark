@@ -5,7 +5,7 @@ the single source of truth for engine boundaries; any change to it must follow
 the contract-change rules in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Status convention:** structures marked *implemented* exist in
-`backend/models.py` and serve the offline PCAP-replay mode. Structures marked
+`backend/models.py` for offline or distributed operation. Structures marked
 *proposed* define the distributed architecture and are not yet in the codebase.
 
 Two rules apply throughout:
@@ -58,7 +58,7 @@ packet and may compute a DNS entropy value (§7) for DNS queries. Malformed or
 unsupported headers are marked (`malformed` flag / `Undecoded` layer) and
 **never abort processing of other packets**.
 
-## 3. PacketFingerprint — *proposed* (E2, internal and inside telemetry)
+## 3. PacketFingerprint — *implemented* (E2, internal and inside telemetry)
 
 | Field | Type | Req/Opt | Meaning & validation |
 | --- | --- | --- | --- |
@@ -77,9 +77,15 @@ Hashed (treated as path-invariant for a given packet):
 | IPv4/IPv6 destination address | Unchanged by routing (NAT exception) |
 | IP protocol / next header | Constant end-to-end |
 | IPv4 identification | Copied to all fragments; routers do not rewrite it for unfragmented packets (some stacks zero it — §9) |
-| TCP sequence number | Constant end-to-end for a given segment |
-| UDP: source port, destination port, length | UDP has no sequence number; ports + length substitute (proposed; confirm in Phase 3) |
-| ICMP: type, code, identifier/sequence | Echo requests/replies carry identifier+sequence |
+| TCP source port, destination port, sequence number | Stable without NAT; retransmissions reuse these fields |
+| UDP: source port, destination port, length | UDP has no sequence number; ports + length substitute |
+| ICMP: type, code | Current v1 implementation; echo identifier/sequence are not included |
+
+Version-1 coverage qualification: ICMPv6 currently contributes IP-layer fields
+only; IPv6 extension headers and reliable IP-fragment correlation are not
+implemented. Malformed transport headers may leave only IP fields. Treat these
+as weak fingerprints rather than unique packet identities. The field matrix
+above reflects the actual v1 encoder; stronger fields require a version bump.
 
 Explicitly **excluded**: TTL/Hop Limit (decremented per router), source and
 destination MAC addresses (rewritten at every hop), header checksums
@@ -112,7 +118,7 @@ destination MAC addresses (rewritten at every hop), header checksums
 **Producer:** E2. **Consumers:** E2 (embeds into telemetry), E3 (matching
 key). **Persistence:** stored with correlation records (§6, §7).
 
-## 4. ProbeTelemetry — *proposed* (E2 → E3, over TCP port 9000)
+## 4. ProbeTelemetry — *implemented* (E2 → E3, over TCP port 9000)
 
 The compact per-packet record. **Target size: 24 bytes** (presentation
 figure). The layout below was checked field-by-field and fits exactly 24
@@ -133,8 +139,7 @@ bytes with no spare bytes.
 **What did *not* fit, and why that is acceptable:** original wire length,
 ports, protocol number, DNS entropy, TCP flags, and clock-offset metadata
 cannot fit without exceeding 24 bytes. The chosen smallest adjustment: those
-values are either (a) *derivable* by E3 from the fingerprint-correlated
-context and later reconcilable in E4, or (b) carried by **extension records** —
+values require separately supplied context or future **extension records** —
 new `type_flags` record types (e.g. type 2 = DNS entropy report, type 3 =
 probe summary) whose payloads are defined alongside the type. Extension
 records do not change the 24-byte packet-data record. If a future need
@@ -142,6 +147,11 @@ requires fields in the packet-data record itself, the format version nibble
 permits a v2 record with a different size, declared in the connection
 preamble (§4.2). This is the documented decision point; changing it requires
 a contract change PR.
+
+E3 cannot recover headers or entropy from a one-way hash. Only types 1 (packet)
+and 3 (heartbeat, same layout, fingerprint/length zero) are implemented; type 2
+and other extensions are reserved and rejected. `TelemetryClient.send_heartbeat`
+is explicit; a probe runtime must schedule it every 5 seconds while idle.
 
 ### 4.2 TCP framing and connection lifecycle
 
@@ -151,16 +161,17 @@ TCP is a byte stream; record boundaries must be explicit:
    preamble — 4-byte magic `MSHK`, 1-byte preamble version, 1-byte record
    size (24 for v1), 2 reserved bytes, 4-byte epoch-seconds of the probe's
    clock at connect time, 4 reserved. This declares the record size and gives
-   E3 a coarse clock-offset hint. E3 validates magic and version and closes
-   the connection with an error preamble on mismatch.
-2. **Record stream:** after the preamble, both directions carry a stream of
+   E3 a coarse clock-offset hint. E3 validates magic, version, record size and
+   zero reserved fields, then logs and closes on mismatch (no error reply).
+2. **Record stream:** after the preamble, the probe sends a stream of
    **fixed-size records** as laid out above. The receiver accumulates bytes
    and emits a record whenever 24 bytes are available; partial records are
    buffered across `recv` calls.
 3. **Keepalive/heartbeat:** an idle probe sends a type-3 summary record at a
    configured interval (default 5 s) so E3 can track probe liveness.
-4. **Shutdown:** a clean close ends the stream; E3 flushes outstanding
-   correlations for that probe and marks probe status offline.
+4. **Shutdown:** a clean close marks the probe offline. Outstanding observations
+   retain their original deadlines so disconnects cannot manufacture early
+   loss events. Server stop closes writers and awaits all handler tasks.
 
 ### 4.3 Validation and malformed-message handling
 
@@ -171,18 +182,24 @@ TCP is a byte stream; record boundaries must be explicit:
 - `timestamp_ns` implausible for the preamble clock hint (offset beyond a
   configured bound) → accept record but set a **clock-quality flag** on the
   correlation; E3 surfaces the flag to E4 rather than dropping data.
-- Flood/abuse: bounded read buffers; slow-loris style probes are dropped on
-  idle timeout.
-- **Authentication:** v1 uses a shared pre-shared token in the preamble
-  (optional, config-driven). There is no encryption; telemetry is deployment-
-  internal. TLS support is out of scope for the mini-project (documented
-  limitation).
+- Unknown record types, unconfigured probe IDs, identity changes within a
+  connection, and a second simultaneous connection for the same probe are
+  rejected. Identity is established by the first valid record.
+- At most 8 connections by default; stream-reader limit 4,096 bytes (asyncio
+  applies transport backpressure). Each complete preamble/record must arrive
+  within 30 seconds. Trailing partial records increment rejection counters.
+- Valid traffic restores degraded probes to online; 15 seconds without valid
+  traffic marks them degraded; EOF or the 30-second read timeout marks offline.
+- Clock differences beyond 60 seconds (record/server or preamble/server) set
+  `CLOCK_SKEW_SUSPECT`. The coarse clock hint is not a synchronisation estimate.
+- **Authentication:** v1 has no token field or authentication and no encryption;
+  it is deployment-internal. Auth/TLS require a future versioned contract.
 
 **Producer:** E2's emitter (per probe). **Consumer:** E3 ingestion service
 (port 9000). **Not** duplicated as an HTTP route — ingestion is TCP-only by
 design (see [api_routes.md](api_routes.md) §2).
 
-## 5. CorrelationRecord — *proposed* (E3 → E4)
+## 5. CorrelationRecord — *implemented* (E3 → E4)
 
 One record per distinct in-flight packet key observed by the probes.
 
@@ -195,22 +212,46 @@ One record per distinct in-flight packet key observed by the probes.
 | `delay_ns` | `int64` | Optional | ΔT = T₂ − T₁, present only when both observed. **Signed:** negative values are *valid data* (clock skew) and are flagged, not discarded. |
 | `match_state` | enum | Required | `matched` · `late` (T₂ after timeout) · `unmatched` (timed out) · `probe2_only` (reverse-direction or missing T₁ case) |
 | `deadline_ns` | `uint64` | Required | T₁ + timeout (default 500 ms, configurable) |
-| `flags` | `uint32` | Optional | Bit set: `CLOCK_SKEW_SUSPECT` (|ΔT| implausible or negative), `COLLISION_DISAMBIGUATED`, `FRAGMENT`, `DUPLICATE_T2_IGNORED`, `FINGERPRINT_VERSION_MISMATCH` |
+| `flags` | `uint32` | Optional | `CLOCK_SKEW_SUSPECT`=1, `COLLISION_DISAMBIGUATED`=2, reserved `FRAGMENT`=4, `DUPLICATE_T2_IGNORED`=8, `FINGERPRINT_VERSION_MISMATCH`=16; `CAPACITY_EVICTED`=32 |
 | `probe1_seq` / `probe2_seq` | `uint32` | Optional | Telemetry sequence numbers, for gap/duplicate evidence |
 | `created_at_ns` | `uint64` | Required | Server-side record creation time |
 
 **Semantics that E3 guarantees and E4 relies on:**
 
-- A `matched` record is emitted exactly once per key; a later duplicate T₂ is
-  counted in stats, never re-emitted.
+- Matching uses `(fingerprint, captured_len)` buckets and FIFO observations
+  within each bucket. Both probes need equal snaplen/link-layer lengths.
+  Probe-local sequences never identify the cross-probe packet. Repeated
+  fingerprints remain separate observations; FIFO ambiguity is flagged when
+  multiple candidates exist. Indistinguishable retransmissions can still pair
+  incorrectly. Ports are unavailable on the wire and cannot disambiguate E3.
+- Exactly identical telemetry (all six fields) is suppressed for either probe
+  while retained in the bounded 50,000-observation FIFO dedup cache. After cache
+  eviction, duplicates can be processed again; no unbounded guarantee is made.
+- Deadline expiry is inclusive: server `now >= T1 + timeout`. Expiration runs
+  before each record as well as on a 50 ms timer, preventing timer races. A
+  late match is based on server receipt/processing time, not only T2 capture
+  time. Early T2 is buffered for the configured match window from server receipt
+  (500 ms by default), then emits `probe2_only` with that grace deadline.
 - `unmatched` means *"no Probe-2 observation arrived within the timeout
   window."* It does **not** prove where on the path the packet was lost — with
   two probes the strongest honest claim is "lost (or delayed beyond the
   window) between the two observation points." If a T₂ arrives afterwards the
   record transitions to `late` and E4 must be able to retract or downgrade the
   original alert.
-- Match-table entries leave memory after emission (matched, late, or timed
-  out); the heap never retains fingerprints whose records were emitted.
+- Pending observations across both probes are capped at 200,000. Capacity
+  pressure evicts the earliest deadline with `CAPACITY_EVICTED`; this means
+  incomplete correlation evidence, not confirmed packet loss. Heap nodes are
+  lazily removed and compacted to at most twice the active count; an empty
+  table has an empty heap. Expired T1 observations occupy a separate bounded
+  50,000-entry FIFO cache for late matching, oldest expired candidate first.
+- `unmatched_total` counts cumulative emitted timeout/eviction events;
+  `late_recoveries` counts corrections to them. Use
+  `uncorrected_unmatched_total = unmatched_total - late_recoveries` rather than
+  counting late recovery as loss again. Recovery is limited by cache retention.
+- Negative or >10-second delays are flagged; suspect delays are excluded from
+  latency percentiles. Listener callbacks run synchronously on the event loop;
+  failures are logged and counted, and do not prevent other listeners receiving
+  an event. E4 must keep callbacks short or implement its own bounded handoff.
 
 **Producer:** E3. **Consumer:** E4. **Persistence:** §7 `packets`/correlation
 table.

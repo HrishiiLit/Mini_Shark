@@ -12,8 +12,9 @@ here.
 > **Evidence convention.** Sections labelled *planned* describe work that has
 > **not** been performed. "Completion evidence" entries are empty until real
 > artifacts (commits, test runs, benchmarks) exist; nothing in this document
-> asserts completed work beyond Phase 1's offline foundation, which is
-> verifiable in the repository (47 passing unit tests, tag `v0.1-phase1`).
+> asserts completion without verification. Phase 1's offline foundation is
+> tagged `v0.1-phase1`. The current audit, phase gaps, executed Phase-4 plan
+> and measured results are in [phase4-verification.md](phase4-verification.md).
 
 ## Engine ownership
 
@@ -160,8 +161,11 @@ capacity.
 - Saturation is observable (counters) and never crashes the probe.
 - Shutdown within a bounded time with no thread leaks.
 
-**Completion evidence:** _(to be filled: commits, benchmark numbers, test run
-links — none exist yet)_
+**Completion evidence:** `backend/e1_capture/live.py` implements Scapy/Npcap
+batch capture alongside offline loading. Adapter tests verify timestamp/byte
+preservation and errors without hardware. **Partial:** no preallocated ring,
+producer/consumer handoff, `CapturedPacket`, saturation counters or 10,000 pps
+capture benchmark exists. Real NIC capture was not tested by this audit.
 
 **Risks and mitigations:**
 
@@ -210,7 +214,12 @@ fingerprints for the supported field set.
 - DNS entropy produces correct values on known inputs; the *classification*
   (possible exfiltration) stays in E4.
 
-**Completion evidence:** _(none yet)_
+**Completion evidence:** `backend/e2_dissection/` and
+`tests/unit/test_e2_fingerprint.py` implement and verify BLAKE2b v1, hop
+invariance, entropy and 24-byte telemetry. **Qualification:** fragment and
+ICMPv6 fingerprints remain weak; ICMP v1 omits echo identifiers. The v1
+field matrix is documented honestly in `data_contract.md`. No sub-microsecond
+fingerprint performance claim has been established.
 
 **Risks and mitigations:**
 
@@ -232,7 +241,7 @@ delay estimates and unmatched-packet events.
 **Dependencies:** Phase 1 (telemetry record), Phase 3 (fingerprints arriving
 in records).
 
-**Ordered tasks (planned):**
+**Ordered tasks (executed; see verification report):**
 
 1. `feat(e3): TCP ingestion service on port 9000 (asyncio), one persistent connection per probe`
 2. `feat(e3): record framing, version check and malformed-message handling`
@@ -263,7 +272,19 @@ records and timeout events.
 - Every timeout is explained by an absent T₂ within the window, and late
   arrivals are visible as `late`, never double-counted as loss.
 
-**Completion evidence:** _(none yet)_
+**Completion evidence:** implemented and locally verified in
+`backend/e3_flows/{correlation,ingestion,__main__}.py`, shared models, E3 tests,
+`demo_e3.py` and `benchmark_e3.py`. FIFO matching preserves repeated
+fingerprints, uses captured length for disambiguation and bounds both probes'
+pending state, deduplication, late cache and lazy heap. Validation covers
+versions, reserved bytes, identity and idle timeouts; shutdown awaits handlers.
+The standalone service runs with `python -m backend.e3_flows`.
+
+Three runs of 20,000 packet pairs on Windows/Python 3.14.3 measured median
+**25,460 pairs/s** direct and **13,839 pairs/s** over localhost TCP with the
+default 500 ms timeout and 100-pair batches. These are synthetic E3 results,
+not E1 capture rates. Raw results: [phase4-benchmark.json](phase4-benchmark.json).
+Full check results and remaining limitations: [phase4-verification.md](phase4-verification.md).
 
 **Risks and mitigations:**
 
@@ -418,10 +439,10 @@ unit tests on the release commit.
 
 | Phase | Focus | Engine | State |
 | --- | --- | --- | --- |
-| 1 | Architecture, contracts, foundation | All | Docs revision done; code wiring pending |
-| 2 | Live capture and buffering | E1 | Planned |
-| 3 | Dissection and fingerprinting | E2 | Planned (dissector base exists) |
-| 4 | Telemetry ingestion and correlation | E3 | Planned |
+| 1 | Architecture, contracts, foundation | All | Done |
+| 2 | Live capture and buffering | E1 | Partial (batch Scapy/Npcap + offline PCAP; bounded capture pipeline pending) |
+| 3 | Dissection and fingerprinting | E2 | Implemented for tested v1 fields; fragment/ICMPv6 and performance qualification pending |
+| 4 | Telemetry ingestion and correlation | E3 | Implemented and locally verified; bounded TCP/FIFO correlation and measured synthetic throughput |
 | 5 | Diagnostic rules and persistence | E4 | Planned (offline storage exists) |
 | 6 | API, WebSocket, React dashboard | E4 | Planned (offline routes exist) |
 | 7 | Integration, validation, demo | All | Planned |
@@ -441,7 +462,6 @@ unit tests on the release commit.
 5. **Telemetry record extension** — the 24-byte record has spare flag bits
    but no room for ports/metrics; confirm the extension path (flag-driven
    side records) if E3 needs disambiguating metadata.
-6. **CI branch mismatch** — CI triggers on `main`, default branch is
-   `master`; align (config change, team decision).
+6. **CI branch alignment** — resolved: CI now covers `master` and `main`.
 7. **Retention policy** — how long correlation records and raw telemetry
    summaries live in `minishark.db` before pruning.

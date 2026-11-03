@@ -22,11 +22,16 @@ from __future__ import annotations
 import hashlib
 import math
 import struct
-import time
 from collections.abc import Iterable
 
 from backend.interfaces import EngineE2
-from backend.models import DecodedPacket, Layer, Packet, PacketFingerprint, ProbeTelemetry
+from backend.models import (
+    DecodedPacket,
+    Layer,
+    Packet,
+    PacketFingerprint,
+    ProbeTelemetry,
+)
 
 from .protocols import build_default_registry, extract_invariant_fields
 from .registry import Dispatch, DissectorRegistry
@@ -38,12 +43,13 @@ _HEADER_ERRORS = (struct.error, ValueError, IndexError, KeyError, UnicodeError)
 # Fingerprint algorithm constants  (data_contract.md §3)
 # ---------------------------------------------------------------------------
 _FP_ALGORITHM = "blake2b-64"
-_FP_VERSION = 1          # bump when the invariant field set changes
+_FP_VERSION = 1  # bump when the invariant field set changes
 
 
 # ---------------------------------------------------------------------------
 # Layer walker (unchanged from Phase 1)
 # ---------------------------------------------------------------------------
+
 
 def _walk(data: bytes, dispatch: Dispatch, registry: DissectorRegistry) -> list[Layer]:
     """Decode ``data`` layer by layer until the dispatch chain ends."""
@@ -75,6 +81,7 @@ def _walk(data: bytes, dispatch: Dispatch, registry: DissectorRegistry) -> list[
 # Phase 3 — fingerprinting
 # ---------------------------------------------------------------------------
 
+
 def _compute_fingerprint(layers: list[Layer]) -> PacketFingerprint | None:
     """Compute the 64-bit BLAKE2b fingerprint for a decoded packet.
 
@@ -105,6 +112,7 @@ def _compute_fingerprint(layers: list[Layer]) -> PacketFingerprint | None:
 # ---------------------------------------------------------------------------
 # Phase 3 — DNS Shannon entropy
 # ---------------------------------------------------------------------------
+
 
 def _dns_shannon_entropy(layers: list[Layer]) -> float | None:
     """Compute Shannon entropy H(X) over characters of the first DNS query name.
@@ -150,8 +158,8 @@ def _dns_shannon_entropy(layers: list[Layer]) -> float | None:
 # Phase 3 — telemetry record builder
 # ---------------------------------------------------------------------------
 
-_TELEMETRY_RECORD_TYPE_PACKET = 1   # bits 0-3 of type_flags
-_TELEMETRY_FORMAT_VERSION = 1       # bits 4-7 of type_flags (stored as nibble)
+_TELEMETRY_RECORD_TYPE_PACKET = 1  # bits 0-3 of type_flags
+_TELEMETRY_FORMAT_VERSION = 1  # bits 4-7 of type_flags (stored as nibble)
 
 
 def _make_telemetry(
@@ -168,7 +176,7 @@ def _make_telemetry(
     Args:
         decoded  : the decoded packet from ``dissect_one``.
         packet   : the originating raw ``Packet`` (for timestamp and length).
-        probe_id : probe identity (1–255); defaults to 1 for offline/test mode.
+        probe_id : probe identity (1-255); defaults to 1 for offline/test mode.
         seq      : per-probe monotonic counter; caller increments between calls.
 
     Wire format (data_contract.md §4):
@@ -181,12 +189,11 @@ def _make_telemetry(
     # In live mode E1 provides ns-precision uint64; in offline/PCAP mode the
     # timestamp is a float (seconds).  We normalise to ns here.
     ts = packet.timestamp
-    if isinstance(ts, float):
-        timestamp_ns = int(ts * 1_000_000_000)
-    else:
-        timestamp_ns = int(ts)
+    timestamp_ns = int(ts * 1_000_000_000) if isinstance(ts, float) else int(ts)
 
-    type_flags = ((_TELEMETRY_FORMAT_VERSION & 0x0F) << 4) | (_TELEMETRY_RECORD_TYPE_PACKET & 0x0F)
+    type_flags = ((_TELEMETRY_FORMAT_VERSION & 0x0F) << 4) | (
+        _TELEMETRY_RECORD_TYPE_PACKET & 0x0F
+    )
 
     return ProbeTelemetry(
         fingerprint=decoded.fingerprint.value,
@@ -201,6 +208,7 @@ def _make_telemetry(
 # ---------------------------------------------------------------------------
 # ProtocolDissector — the main E2 class
 # ---------------------------------------------------------------------------
+
 
 class ProtocolDissector(EngineE2):
     """Default E2 implementation driven by a :class:`DissectorRegistry`.

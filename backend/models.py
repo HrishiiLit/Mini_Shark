@@ -5,7 +5,9 @@ These dataclasses define the contract between the four engines.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
+from enum import IntFlag, StrEnum
 from typing import Any
 
 
@@ -44,7 +46,7 @@ class DecodedPacket:
     """Engine E2 - hierarchical protocol representation.
 
     packet_index : original Packet.index
-    layers       : ordered list of Layer objects from lowest (link) to highest (application)
+    layers       : ordered Layer objects from link to application
     fingerprint  : 64-bit BLAKE2b fingerprint computed from path-invariant fields
                    (None if the packet has no IP layer or is fully malformed)
     dns_entropy  : Shannon entropy H(X) of the first DNS query name in this
@@ -53,8 +55,8 @@ class DecodedPacket:
 
     packet_index: int
     layers: list[Layer] = field(default_factory=list)
-    fingerprint: "PacketFingerprint | None" = None
-    dns_entropy: "float | None" = None
+    fingerprint: PacketFingerprint | None = None
+    dns_entropy: float | None = None
 
 
 @dataclass(frozen=True)
@@ -91,11 +93,11 @@ class ProbeTelemetry:
       total  : 24 bytes
     """
 
-    fingerprint: int   # uint64 — PacketFingerprint.value
+    fingerprint: int  # uint64 — PacketFingerprint.value
     timestamp_ns: int  # uint64 — probe-local capture time, ns since epoch
-    seq: int           # uint32 — per-probe monotonic packet counter
-    probe_id: int      # uint8  — 1-255
-    type_flags: int    # uint8  — record type + version nibble
+    seq: int  # uint32 — per-probe monotonic packet counter
+    probe_id: int  # uint8  — 1-255
+    type_flags: int  # uint8  — record type + version nibble
     captured_len: int  # uint16 — captured bytes (evidence only)
 
     # ------------------------------------------------------------------
@@ -117,14 +119,16 @@ class ProbeTelemetry:
         )
 
     @classmethod
-    def unpack(cls, data: bytes) -> "ProbeTelemetry":
+    def unpack(cls, data: bytes) -> ProbeTelemetry:
         """Deserialize from exactly 24 bytes."""
         import struct
 
         if len(data) != 24:
-            raise ValueError(f"ProbeTelemetry.unpack: expected 24 bytes, got {len(data)}")
-        fingerprint, timestamp_ns, seq, probe_id, type_flags, captured_len = struct.unpack(
-            "!QQIBBH", data
+            raise ValueError(
+                f"ProbeTelemetry.unpack: expected 24 bytes, got {len(data)}"
+            )
+        fingerprint, timestamp_ns, seq, probe_id, type_flags, captured_len = (
+            struct.unpack("!QQIBBH", data)
         )
         return cls(
             fingerprint=fingerprint,
@@ -134,6 +138,123 @@ class ProbeTelemetry:
             type_flags=type_flags,
             captured_len=captured_len,
         )
+
+
+class MatchState(StrEnum):
+    """Match state of a packet between observation probes."""
+
+    MATCHED = "matched"
+    LATE = "late"
+    UNMATCHED = "unmatched"
+    PROBE2_ONLY = "probe2_only"
+
+
+class CorrelationFlags(IntFlag):
+    """Bit flags for CorrelationRecord per data_contract.md §5."""
+
+    NONE = 0
+    CLOCK_SKEW_SUSPECT = 1 << 0  # 1: |delay_ns| implausible or negative
+    COLLISION_DISAMBIGUATED = 1 << 1  # 2: key collision resolved via metadata
+    FRAGMENT = 1 << 2  # 4: IP fragment
+    DUPLICATE_T2_IGNORED = 1 << 3  # 8: duplicate Probe 2 telemetry dropped
+    FINGERPRINT_VERSION_MISMATCH = 1 << 4  # 16: version nibble mismatch
+    CAPACITY_EVICTED = 1 << 5  # 32: capacity pressure, not a normal timeout
+
+
+@dataclass(frozen=True)
+class TelemetryPreamble:
+    """16-byte fixed connection preamble sent once per probe connection.
+
+    Wire layout (big-endian):
+      offset  0, 4 bytes : magic ("MSHK" = 0x4D53484B)
+      offset  4, 1 byte  : version (1)
+      offset  5, 1 byte  : record_size (24)
+      offset  6, 2 bytes : reserved (0x0000)
+      offset  8, 4 bytes : probe_clock_epoch_s (uint32)
+      offset 12, 4 bytes : reserved (0x00000000)
+      total   : 16 bytes
+    """
+
+    magic: bytes = b"MSHK"
+    version: int = 1
+    record_size: int = 24
+    probe_clock_epoch_s: int = 0
+
+    def pack(self) -> bytes:
+        """Serialize preamble to 16 bytes."""
+        import struct
+
+        return struct.pack(
+            "!4sBBHII",
+            self.magic,
+            self.version & 0xFF,
+            self.record_size & 0xFF,
+            0,
+            self.probe_clock_epoch_s & 0xFFFFFFFF,
+            0,
+        )
+
+    @classmethod
+    def unpack(cls, data: bytes) -> TelemetryPreamble:
+        """Deserialize from exactly 16 bytes."""
+        import struct
+
+        if len(data) != 16:
+            raise ValueError(
+                f"TelemetryPreamble.unpack: expected 16 bytes, got {len(data)}"
+            )
+        magic, version, record_size, _res1, clock_s, _res2 = struct.unpack(
+            "!4sBBHII", data
+        )
+        if magic != b"MSHK":
+            raise ValueError(f"Invalid magic {magic!r}, expected b'MSHK'")
+        if version != 1 or record_size != 24 or _res1 or _res2:
+            raise ValueError("Unsupported preamble version, size or reserved fields")
+        return cls(
+            magic=magic,
+            version=version,
+            record_size=record_size,
+            probe_clock_epoch_s=clock_s,
+        )
+
+
+@dataclass(frozen=True)
+class CorrelationRecord:
+    """E3 -> E4 - cross-probe packet correlation record (data_contract.md §5).
+
+    fingerprint     : 64-bit BLAKE2b hash
+    probe1_observed : seen at Probe 1
+    probe2_observed : seen at Probe 2
+    t1_ns           : capture timestamp at Probe 1 (ns since epoch)
+    t2_ns           : capture timestamp at Probe 2 (ns since epoch)
+    delay_ns        : signed transit delay (T2 - T1), None if unmatched
+    match_state     : 'matched' | 'late' | 'unmatched' | 'probe2_only'
+    deadline_ns     : expiration deadline (T1 + timeout_ns)
+    flags           : bitmask of CorrelationFlags
+    probe1_seq      : telemetry sequence counter from Probe 1
+    probe2_seq      : telemetry sequence counter from Probe 2
+    created_at_ns   : timestamp when this correlation record was generated
+    """
+
+    fingerprint: int
+    probe1_observed: bool
+    probe2_observed: bool
+    t1_ns: int | None = None
+    t2_ns: int | None = None
+    delay_ns: int | None = None
+    match_state: str = MatchState.UNMATCHED.value
+    deadline_ns: int = 0
+    flags: int = 0
+    probe1_seq: int | None = None
+    probe2_seq: int | None = None
+    created_at_ns: int = field(default_factory=time.time_ns)
+
+    @property
+    def delay_ms(self) -> float | None:
+        """Helper to get delay in milliseconds for UI/metrics."""
+        if self.delay_ns is None:
+            return None
+        return self.delay_ns / 1_000_000.0
 
 
 @dataclass(frozen=True)
