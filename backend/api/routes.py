@@ -50,23 +50,72 @@ def get_engine() -> QueryEngine:
 
 
 def get_hub() -> CorrelationHub:
+    """Return the process-wide CorrelationHub (created once, shared everywhere).
+
+    The hub's on_record callback:
+      1. Persists the record to SQLite
+      2. Broadcasts a WebSocket message to all connected dashboard clients
+      3. Periodically runs diagnostic rules and stores alerts
+    """
     global _hub
     if _hub is None:
+        _record_count = [0]   # mutable counter inside closure
+
         def _on_record(rec: CorrelationRecord) -> None:
-            # persist + broadcast every correlation record
+            _record_count[0] += 1
+
+            # 1. Persist to DB
             try:
                 get_engine().store_correlation(rec)
             except Exception:
                 pass
-            asyncio.create_task(_broadcast({
-                "type": "correlation",
-                "match_state": rec.match_state,
-                "fingerprint": f"0x{rec.fingerprint:016X}",
-                "delay_ms": round(rec.delay_ns / 1_000_000, 3) if rec.delay_ns is not None else None,
-                "flags": rec.flags,
-            }))
 
-        _hub = CorrelationHub(timeout_ms=500, on_record=_on_record)
+            # 2. Broadcast to all WebSocket clients
+            delay_ms = round(rec.delay_ns / 1_000_000, 3) if rec.delay_ns is not None else None
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(_broadcast({
+                        "type":        "correlation",
+                        "match_state": rec.match_state,
+                        "fingerprint": f"0x{rec.fingerprint:016X}",
+                        "delay_ms":    delay_ms,
+                        "probe1_seq":  rec.probe1_seq,
+                        "probe2_seq":  rec.probe2_seq,
+                        "flags":       rec.flags,
+                    }))
+            except RuntimeError:
+                pass  # no event loop running (unit tests)
+
+            # 3. Run diagnostics every 20 records
+            if _record_count[0] % 20 == 0:
+                try:
+                    all_recs = get_engine().correlations(limit=100)
+                    alerts   = get_engine().diagnose(all_recs, persist=True)
+                    if alerts:
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                for alert in alerts:
+                                    asyncio.create_task(_broadcast({
+                                        "type":     "alert",
+                                        "category": alert.category,
+                                        "severity": alert.severity,
+                                        "confidence": alert.confidence,
+                                        "recommended_action": alert.recommended_action,
+                                        "metrics":  alert.metrics,
+                                    }))
+                        except RuntimeError:
+                            pass
+                except Exception:
+                    pass
+
+        _hub = CorrelationHub(
+            timeout_ms=500,
+            on_record=_on_record,
+            probe1_id=1,
+            probe2_id=2,
+        )
     return _hub
 
 

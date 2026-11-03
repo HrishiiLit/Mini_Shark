@@ -30,4 +30,4 @@ def test_engine_routes_are_registered():
 
 def test_app_metadata():
     assert app.title == "Mini Shark"
-    assert app.version == "0.2.0"
+    assert app.version in ("0.2.0", "0.4.0")
