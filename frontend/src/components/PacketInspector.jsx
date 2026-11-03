@@ -8,8 +8,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-
-const API = 'http://127.0.0.1:8001'
+import { API } from '../config.js'
 
 // ── protocol colour coding ────────────────────────────────────────────────────
 const PROTO = {

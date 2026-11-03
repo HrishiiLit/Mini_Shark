@@ -110,6 +110,30 @@ class TelemetryClient:
             self._sock = None
             return False
 
+    def send_heartbeat(self, seq: int = 0) -> bool:
+        """Send a type-3 heartbeat record to keep the probe marked 'online'.
+
+        Wire format: standard 24-byte ProbeTelemetry with
+          fingerprint=0, captured_len=0, type_flags=0x13
+          (version nibble=1, record-type nibble=3).
+
+        Returns False if the connection was lost (caller should reconnect).
+        """
+        import struct as _struct
+        # type_flags: version=1 (nibble 4-7=0x10) | type=3 (nibble 0-3=0x03) = 0x13
+        _HB_TYPE_FLAGS = (1 << 4) | 3
+        now_ns = int(time.time() * 1_000_000_000)
+        wire = _struct.pack(
+            "!QQIBBH",
+            0,                                    # fingerprint = 0
+            now_ns & 0xFFFFFFFFFFFFFFFF,          # timestamp_ns
+            seq & 0xFFFFFFFF,                     # seq
+            self.probe_id & 0xFF,                 # probe_id
+            _HB_TYPE_FLAGS,                       # type_flags = 0x13
+            0,                                    # captured_len = 0
+        )
+        return self.send(wire)
+
     def reconnect(self) -> None:
         """Close and reconnect."""
         self.close()

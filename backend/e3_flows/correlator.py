@@ -44,6 +44,12 @@ _PREAMBLE_SIZE    = 16
 _RECORD_SIZE      = 24
 _PREAMBLE_VERSION = 1
 
+# Hard ceiling on the number of in-flight Probe-1 observations held in memory.
+# Under 100% packet loss with sustained traffic the table would otherwise grow
+# without bound.  When the ceiling is hit the oldest (earliest-deadline) entry
+# is force-expired as UNMATCHED before the new one is inserted.
+_MAX_IN_FLIGHT = 50_000
+
 # ──────────────────────────────────────────────────────────────────────────────
 # In-flight entry stored in the hash table
 # ──────────────────────────────────────────────────────────────────────────────
@@ -126,6 +132,9 @@ class CorrelationHub:
                 self.stats["duplicate_t2"] += 1
                 return None
 
+            # Enforce memory cap before inserting — evict oldest live entry.
+            self._maybe_evict()
+
             deadline = ts + self._timeout_ns
             entry = _InFlight(
                 fingerprint=fp,
@@ -137,6 +146,7 @@ class CorrelationHub:
             )
             self._table[fp] = entry
             heapq.heappush(self._heap, (deadline, fp))
+            self._compact_heap()
             return None
 
         elif pid == self._probe2_id:
@@ -271,6 +281,50 @@ class CorrelationHub:
             self.ingest(telemetry)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
+
+    def _compact_heap(self) -> None:
+        """Rebuild the heap when dead nodes outnumber live ones 2-to-1.
+
+        Matched entries are never removed from the heap explicitly (lazy
+        deletion); over time this causes the heap to grow to O(all-time
+        matched count).  Compaction brings it back to O(in-flight count).
+        """
+        live_count = sum(1 for e in self._table.values() if e.alive)
+        if len(self._heap) > 2 * (live_count + 1):
+            self._heap = [
+                (e.deadline_ns, fp)
+                for fp, e in self._table.items()
+                if e.alive
+            ]
+            heapq.heapify(self._heap)
+
+    def _maybe_evict(self) -> None:
+        """Force-expire the oldest in-flight entry when the table is full.
+
+        Prevents unbounded memory growth under 100% packet-loss conditions
+        where Probe-1 observations pile up with no matching Probe-2 side.
+        """
+        if len(self._table) < _MAX_IN_FLIGHT:
+            return
+        now = time.time_ns()
+        # Pop heap nodes until we find a live one to evict
+        while self._heap:
+            deadline, fp = heapq.heappop(self._heap)
+            entry = self._table.get(fp)
+            if entry is not None and entry.alive:
+                entry.alive = False
+                del self._table[fp]
+                rec = self._make_record(
+                    fp=fp,
+                    p1_ts=entry.timestamp_ns, p2_ts=None,
+                    p1_seq=entry.seq, p2_seq=None,
+                    match_state="unmatched",
+                    deadline_ns=entry.deadline_ns,
+                    flags=0,
+                )
+                self.stats["unmatched"] += 1
+                self._emit(rec)
+                return
 
     def _expire_timeouts(self, *, force_all: bool = False) -> list[CorrelationRecord]:
         now = time.time_ns()

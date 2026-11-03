@@ -25,9 +25,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-
-const API = 'http://127.0.0.1:8001'
-const WS  = 'ws://127.0.0.1:8001/ws/live'
+import { API, WS } from '../config.js'
 
 /* ── Wireshark row colours ─────────────────────────────────────────────────── */
 const ROW_COLOR = {

@@ -115,14 +115,20 @@ def _compute_fingerprint(layers: list[Layer]) -> PacketFingerprint | None:
 
 
 def _dns_shannon_entropy(layers: list[Layer]) -> float | None:
-    """Compute Shannon entropy H(X) over characters of the first DNS query name.
+    """Compute Shannon entropy H(X) over the raw bytes of the first DNS query name.
 
-    H(X) = -Σ p(c) · log₂(p(c))   for each unique character c in the name.
+    H(X) = -Σ p(b) · log₂(p(b))   for each unique byte value b in the name.
+
+    Operating on raw bytes (not the decoded string) catches binary DNS
+    tunnelling payloads that embed arbitrary byte sequences as label data.
+    Non-ASCII bytes are decoded with ``errors='replace'`` in the dissector so
+    they appear as U+FFFD in the string — working on raw bytes here avoids
+    that loss of information.
 
     Returns ``None`` when no DNS layer with at least one question is present,
-    or when the query name is empty.
+    or when the query name is empty after stripping the root dot.
 
-    The entropy value itself is returned here.  The *classification* threshold
+    The entropy value is returned as-is.  The *classification* threshold
     (H > 4.2 → possible exfiltration) lives in E4 per the data contract.
     """
     for layer in layers:
@@ -132,18 +138,23 @@ def _dns_shannon_entropy(layers: list[Layer]) -> float | None:
         if not questions:
             return None
         name: str = questions[0].get("name", "")
-        # Strip the trailing dot if present (root label)
+        # Strip the trailing dot (root label) if present
         name = name.rstrip(".")
         if not name:
             return None
 
-        # Count character frequencies (case-folded; dots are meaningful
-        # in DNS names as label separators, so they are included)
-        freq: dict[str, int] = {}
-        for ch in name:
-            freq[ch] = freq.get(ch, 0) + 1
+        # Encode back to bytes (case-folded) so non-ASCII replacement chars
+        # don't collapse distinct byte values into a single U+FFFD bucket.
+        raw: bytes = name.lower().encode("utf-8", errors="replace")
+        if not raw:
+            return None
 
-        total = len(name)
+        # Count byte-value frequencies
+        freq: dict[int, int] = {}
+        for b in raw:
+            freq[b] = freq.get(b, 0) + 1
+
+        total = len(raw)
         entropy = 0.0
         for count in freq.values():
             p = count / total

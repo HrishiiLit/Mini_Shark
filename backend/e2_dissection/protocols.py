@@ -127,6 +127,12 @@ def ipv4(data: bytes) -> tuple[Layer, bytes | None, Dispatch | None]:
     if version != 4 or header_len < 20 or len(data) < header_len:
         return Layer("IPv4", {"version": version}, undecoded_bytes=data), None, None
     checksum = struct.unpack_from("!H", data, 10)[0]
+    # Detect IP fragments: More Fragments bit set OR fragment offset > 0.
+    # Fragments beyond the first have no TCP/UDP header so they cannot be
+    # fingerprinted; the probe will skip them and count them separately.
+    _MF_BIT    = 0x2000   # bit 13 of the 16-bit flags_frag field
+    _FRAG_MASK = 0x1FFF   # bits 12-0: fragment offset (units of 8 bytes)
+    is_fragment = bool(flags_frag & _MF_BIT) or (flags_frag & _FRAG_MASK) > 0
     layer = Layer(
         "IPv4",
         {
@@ -136,6 +142,7 @@ def ipv4(data: bytes) -> tuple[Layer, bytes | None, Dispatch | None]:
             "total_length": total_length,
             "id": ident,
             "flags_frag": flags_frag,
+            "fragment": is_fragment,   # True → probe should skip fingerprinting
             "ttl": ttl,
             "protocol": proto,
             "checksum": checksum,
@@ -335,7 +342,9 @@ def _dns_name(data: bytes, offset: int) -> tuple[str, int]:
             continue
         if length & 0xC0 or offset + 1 + length > len(data):
             raise ValueError("bad DNS label")
-        labels.append(data[offset + 1 : offset + 1 + length].decode("ascii"))
+        labels.append(
+            data[offset + 1 : offset + 1 + length].decode("ascii", errors="replace")
+        )
         offset += 1 + length
         if not jumps:
             end = offset

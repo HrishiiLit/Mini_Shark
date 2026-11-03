@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from collections.abc import Sequence
 from typing import Any
 
@@ -244,12 +245,20 @@ def row_to_alert(row: sqlite3.Row) -> DiagnosticAlert:
 # ──────────────────────────────────────────────────────────────────────────────
 
 class CaptureStore:
-    """Thin repository over a SQLite database (schema v2)."""
+    """Thin repository over a SQLite database (schema v2).
+
+    Thread safety: a single ``threading.Lock`` serialises all write operations
+    so the asyncio event loop (correlation subscriber) and FastAPI request
+    handlers can share one ``CaptureStore`` instance without data races.
+    SQLite WAL mode still allows concurrent readers to proceed without holding
+    the lock.
+    """
 
     def __init__(self, path: str = ":memory:") -> None:
         try:
             self._conn = sqlite3.connect(path, check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
+            self._lock = threading.Lock()   # serialises all write operations
             self._apply_migrations()
         except sqlite3.Error as exc:
             raise StorageError(f"cannot open database {path!r}: {exc}") from exc
@@ -282,115 +291,120 @@ class CaptureStore:
         decoded: Sequence[DecodedPacket] | None = None,
     ) -> int:
         """Write capture, packets, layers and flows in one transaction."""
-        try:
-            with self._conn:
-                cursor = self._conn.execute(
-                    "INSERT INTO captures (name, file_hash, packet_count) "
-                    "VALUES (?, ?, ?)",
-                    (name, file_hash, len(packets)),
-                )
-                capture_id = int(cursor.lastrowid)
-                self._conn.executemany(
-                    _INSERT_PACKET,
-                    [(capture_id, p.index, p.timestamp, p.length, p.raw_bytes)
-                     for p in packets],
-                )
-                if decoded:
-                    self._conn.executemany(
-                        _INSERT_LAYER, _layer_rows(capture_id, decoded)
+        with self._lock:
+            try:
+                with self._conn:
+                    cursor = self._conn.execute(
+                        "INSERT INTO captures (name, file_hash, packet_count) "
+                        "VALUES (?, ?, ?)",
+                        (name, file_hash, len(packets)),
                     )
-                self._conn.executemany(
-                    _INSERT_FLOW, [flow_row(capture_id, f) for f in flows]
-                )
-        except sqlite3.Error as exc:
-            raise StorageError(f"failed to store capture: {exc}") from exc
+                    capture_id = int(cursor.lastrowid)
+                    self._conn.executemany(
+                        _INSERT_PACKET,
+                        [(capture_id, p.index, p.timestamp, p.length, p.raw_bytes)
+                         for p in packets],
+                    )
+                    if decoded:
+                        self._conn.executemany(
+                            _INSERT_LAYER, _layer_rows(capture_id, decoded)
+                        )
+                    self._conn.executemany(
+                        _INSERT_FLOW, [flow_row(capture_id, f) for f in flows]
+                    )
+            except sqlite3.Error as exc:
+                raise StorageError(f"failed to store capture: {exc}") from exc
         return capture_id
 
     # ── Distributed mode persistence ───────────────────────────────────
 
     def store_correlation(self, record: CorrelationRecord) -> int:
         """Insert one CorrelationRecord; returns its row id."""
-        try:
-            with self._conn:
-                cur = self._conn.execute(
-                    _INSERT_CORR,
-                    (
-                        _fp_to_db(record.fingerprint),
-                        int(record.probe1_observed),
-                        int(record.probe2_observed),
-                        record.match_state,
-                        record.deadline_ns,
-                        record.created_at_ns,
-                        record.t1_ns,
-                        record.t2_ns,
-                        record.delay_ns,
-                        record.flags,
-                        record.probe1_seq,
-                        record.probe2_seq,
-                    ),
-                )
-                return int(cur.lastrowid)
-        except sqlite3.Error as exc:
-            raise StorageError(f"failed to store correlation: {exc}") from exc
+        with self._lock:
+            try:
+                with self._conn:
+                    cur = self._conn.execute(
+                        _INSERT_CORR,
+                        (
+                            _fp_to_db(record.fingerprint),
+                            int(record.probe1_observed),
+                            int(record.probe2_observed),
+                            record.match_state,
+                            record.deadline_ns,
+                            record.created_at_ns,
+                            record.t1_ns,
+                            record.t2_ns,
+                            record.delay_ns,
+                            record.flags,
+                            record.probe1_seq,
+                            record.probe2_seq,
+                        ),
+                    )
+                    return int(cur.lastrowid)
+            except sqlite3.Error as exc:
+                raise StorageError(f"failed to store correlation: {exc}") from exc
 
     def store_correlations(self, records: Sequence[CorrelationRecord]) -> None:
         """Bulk-insert correlation records in one transaction."""
-        try:
-            with self._conn:
-                self._conn.executemany(
-                    _INSERT_CORR,
-                    [
-                        (
-                            _fp_to_db(r.fingerprint), int(r.probe1_observed),
-                            int(r.probe2_observed), r.match_state,
-                            r.deadline_ns, r.created_at_ns,
-                            r.t1_ns, r.t2_ns, r.delay_ns,
-                            r.flags, r.probe1_seq, r.probe2_seq,
-                        )
-                        for r in records
-                    ],
-                )
-        except sqlite3.Error as exc:
-            raise StorageError(f"failed to store correlations: {exc}") from exc
+        with self._lock:
+            try:
+                with self._conn:
+                    self._conn.executemany(
+                        _INSERT_CORR,
+                        [
+                            (
+                                _fp_to_db(r.fingerprint), int(r.probe1_observed),
+                                int(r.probe2_observed), r.match_state,
+                                r.deadline_ns, r.created_at_ns,
+                                r.t1_ns, r.t2_ns, r.delay_ns,
+                                r.flags, r.probe1_seq, r.probe2_seq,
+                            )
+                            for r in records
+                        ],
+                    )
+            except sqlite3.Error as exc:
+                raise StorageError(f"failed to store correlations: {exc}") from exc
 
     def store_alert(self, alert: DiagnosticAlert) -> int:
         """Insert one DiagnosticAlert; returns its row id."""
-        try:
-            with self._conn:
-                cur = self._conn.execute(
-                    _INSERT_ALERT,
-                    (
-                        alert.category,
-                        alert.severity,
-                        alert.confidence,
-                        alert.detected_at_ns,
-                        alert.recommended_action,
-                        json.dumps([_fp_to_db(f) if isinstance(f,int) else f for f in alert.evidence_refs]),
-                        json.dumps(alert.metrics),
-                    ),
-                )
-                return int(cur.lastrowid)
-        except sqlite3.Error as exc:
-            raise StorageError(f"failed to store alert: {exc}") from exc
+        with self._lock:
+            try:
+                with self._conn:
+                    cur = self._conn.execute(
+                        _INSERT_ALERT,
+                        (
+                            alert.category,
+                            alert.severity,
+                            alert.confidence,
+                            alert.detected_at_ns,
+                            alert.recommended_action,
+                            json.dumps([_fp_to_db(f) if isinstance(f,int) else f for f in alert.evidence_refs]),
+                            json.dumps(alert.metrics),
+                        ),
+                    )
+                    return int(cur.lastrowid)
+            except sqlite3.Error as exc:
+                raise StorageError(f"failed to store alert: {exc}") from exc
 
     def store_alerts(self, alerts: Sequence[DiagnosticAlert]) -> None:
         """Bulk-insert alerts."""
-        try:
-            with self._conn:
-                self._conn.executemany(
-                    _INSERT_ALERT,
-                    [
-                        (
-                            a.category, a.severity, a.confidence,
-                            a.detected_at_ns, a.recommended_action,
-                            json.dumps([_fp_to_db(f) if isinstance(f,int) else f for f in a.evidence_refs]),
-                            json.dumps(a.metrics),
-                        )
-                        for a in alerts
-                    ],
-                )
-        except sqlite3.Error as exc:
-            raise StorageError(f"failed to store alerts: {exc}") from exc
+        with self._lock:
+            try:
+                with self._conn:
+                    self._conn.executemany(
+                        _INSERT_ALERT,
+                        [
+                            (
+                                a.category, a.severity, a.confidence,
+                                a.detected_at_ns, a.recommended_action,
+                                json.dumps([_fp_to_db(f) if isinstance(f,int) else f for f in a.evidence_refs]),
+                                json.dumps(a.metrics),
+                            )
+                            for a in alerts
+                        ],
+                    )
+            except sqlite3.Error as exc:
+                raise StorageError(f"failed to store alerts: {exc}") from exc
 
     # ── Queries ─────────────────────────────────────────────────────────
 
