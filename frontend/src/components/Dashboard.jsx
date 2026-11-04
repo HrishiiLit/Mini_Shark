@@ -74,7 +74,7 @@ function AlertCard({ alert }) {
   )
 }
 
-export default function Dashboard() {
+export default function Dashboard({ onSwitchView }) {
   const [tab,     setTab]     = useState('overview')   // 'overview' | 'inspector' | 'alerts'
   const [wsOk,    setWsOk]    = useState(false)
   const [stats,   setStats]   = useState(null)
@@ -184,6 +184,14 @@ export default function Dashboard() {
             </div>
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            {onSwitchView && (
+              <button
+                onClick={() => onSwitchView('analyzer')}
+                style={{ ...S.btnG, fontSize: 12, padding: '4px 12px' }}
+              >
+                🦈 Wireshark Analyzer
+              </button>
+            )}
             <span style={S.badge(wsOk)}>{wsOk ? '● LIVE' : '○ OFFLINE'}</span>
             <span style={{ padding:'3px 10px', borderRadius:20, fontSize:12, fontWeight:600,
                            background:'#161b22', color: statusColor, border:`1px solid ${statusColor}` }}>

@@ -135,7 +135,7 @@ function TreeNode({ layer, depth }) {
 }
 
 /* ── main app ───────────────────────────────────────────────────────────────── */
-export default function MiniShark() {
+export default function MiniShark({ onSwitchView }) {
   /* state */
   const [packets,     setPackets]     = useState([])   // all displayed packets
   const [selected,    setSelected]    = useState(null)
@@ -344,6 +344,23 @@ export default function MiniShark() {
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11 }}>
+          {onSwitchView && (
+            <button
+              onClick={() => onSwitchView('dashboard')}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: '1px solid rgba(255,255,255,0.4)',
+                borderRadius: 4,
+                color: '#fff',
+                padding: '2px 8px',
+                fontSize: 11,
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              📊 Observatory Dashboard
+            </button>
+          )}
           {wsOk
             ? <span style={{ background: '#16a34a', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>● CONNECTED</span>
             : <span style={{ background: '#dc2626', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>○ OFFLINE</span>
