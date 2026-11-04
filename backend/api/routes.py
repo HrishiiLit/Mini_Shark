@@ -533,22 +533,22 @@ async def stream_live(
             return
 
         selected_iface = _pick_interface(iface)
+        iface_str = str(getattr(selected_iface, 'name', selected_iface))
         index = 0
 
         # Send a "started" event so the frontend knows capture began
-        yield f"data: {json.dumps({'type':'started','interface': selected_iface})}\n\n"
+        yield f"data: {json.dumps({'type':'started','interface': iface_str})}\n\n"
 
-        # Capture in small bursts (1-2s) so we can yield between batches
-        # and check if the client is still connected
+        # Capture in small bursts — 0.3s for low latency
         while True:
             try:
-                # Capture up to 50 packets or 2 seconds, whichever comes first
+                # Capture up to 20 packets or 0.3 seconds, whichever comes first
                 raw_pkts = await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: sniff(
                         iface=selected_iface,
-                        count=50,
-                        timeout=2,
+                        count=20,
+                        timeout=0.3,
                         filter=bpf_filter if bpf_filter else None,
                         store=True,
                     )
@@ -614,8 +614,9 @@ async def stream_live(
                 yield f"data: {json.dumps(event)}\n\n"
                 index += 1
 
-            # Small heartbeat so client knows we're alive
-            yield f"data: {json.dumps({'type':'heartbeat','total': index})}\n\n"
+            # Heartbeat every 50 packets to reduce overhead
+            if index % 50 == 0 and index > 0:
+                yield f"data: {json.dumps({'type':'heartbeat','total': index})}\n\n"
 
     return StreamingResponse(
         event_generator(),
