@@ -2,13 +2,7 @@ import type { ReactNode } from 'react'
 import { Activity, Cpu, FlaskConical, MemoryStick, Radio } from 'lucide-react'
 import { useCaptureStore } from '../store/useCaptureStore'
 
-export function HeaderBar({
-  view = '3d',
-  onViewChange,
-}: {
-  view?: '3d' | 'classic'
-  onViewChange?: (view: '3d' | 'classic') => void
-}) {
+export function HeaderBar() {
   const filter = useCaptureStore((s) => s.filter)
   const setFilter = useCaptureStore((s) => s.setFilter)
   const running = useCaptureStore((s) => s.running)
@@ -57,28 +51,16 @@ export function HeaderBar({
         <Pill icon={<FlaskConical size={12} />} label="Unit Tests" value="144/144 Passing" accent="teal" />
       </div>
 
-      <div className="flex items-center gap-2">
-        <label className="relative block w-full max-w-[320px]">
-          <span className="sr-only">Display filter</span>
-          <Activity className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="ip.addr == 192.168.10.11 && tcp.port == 80"
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 font-mono text-[12px] text-slate-800 outline-none ring-sky-400/40 transition focus:border-sky-400 focus:bg-white focus:ring-2"
-          />
-        </label>
-        {onViewChange && (
-          <button
-            type="button"
-            onClick={() => onViewChange(view === '3d' ? 'classic' : '3d')}
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-[12px] font-medium text-slate-700 shadow-sm transition hover:bg-slate-100 active:scale-95"
-            title="Toggle between 3D Multi-Probe View and Classic Wireshark Analyzer"
-          >
-            {view === '3d' ? '🦈 Classic Wireshark' : '🌐 3D Observatory'}
-          </button>
-        )}
-      </div>
+      <label className="relative block w-full max-w-[360px]">
+        <span className="sr-only">Display filter</span>
+        <Activity className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+        <input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="ip.addr == 192.168.10.11 && tcp.port == 80"
+          className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 font-mono text-[12px] text-slate-800 outline-none ring-sky-400/40 transition focus:border-sky-400 focus:bg-white focus:ring-2"
+        />
+      </label>
     </header>
   )
 }
