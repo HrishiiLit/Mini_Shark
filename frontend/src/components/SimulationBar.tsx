@@ -1,13 +1,16 @@
 import type { ReactNode } from 'react'
-import { FlaskConical, Play, Timer, Users, Wifi, Zap } from 'lucide-react'
+import { FlaskConical, Play, Square, Timer, Users, Wifi, Zap } from 'lucide-react'
 import { useCaptureStore } from '../store/useCaptureStore'
 
 export function SimulationBar() {
   const demoMode = useCaptureStore((s) => s.demoMode)
+  const running  = useCaptureStore((s) => s.running)
   const setDemoMode = useCaptureStore((s) => s.setDemoMode)
   const injectDropRate = useCaptureStore((s) => s.injectDropRate)
   const injectDelaySpike = useCaptureStore((s) => s.injectDelaySpike)
   const runDnsTest = useCaptureStore((s) => s.runDnsTest)
+  const startLiveCapture = useCaptureStore((s) => s.startLiveCapture)
+  const stopLiveCapture  = useCaptureStore((s) => s.stopLiveCapture)
   const clientCount = useCaptureStore((s) => s.clientCount)
   const setClientCount = useCaptureStore((s) => s.setClientCount)
   const probes = useCaptureStore((s) => s.probesStatus)
@@ -46,6 +49,23 @@ export function SimulationBar() {
             Demo Simulation
           </button>
         </div>
+
+        {/* Start / Stop Live Capture */}
+        {!demoMode && (
+          <>
+            {!running ? (
+              <SimButton onClick={startLiveCapture} tone="blue">
+                <Play size={14} />
+                Start Capture
+              </SimButton>
+            ) : (
+              <SimButton onClick={stopLiveCapture} tone="crimson">
+                <Square size={14} />
+                Stop Capture
+              </SimButton>
+            )}
+          </>
+        )}
 
         {/* Defense Test Case Buttons */}
         <SimButton onClick={injectDropRate} tone="crimson">

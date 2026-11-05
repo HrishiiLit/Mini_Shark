@@ -42,6 +42,8 @@ interface CaptureState {
   setClientCount: (count: number) => void
   start: () => void
   pause: () => void
+  startLiveCapture: () => void
+  stopLiveCapture: () => void
   setFilter: (filter: string) => void
   selectPacket: (id: number | null, flightId?: string | null) => void
   injectDropRate: () => void
@@ -113,6 +115,116 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
 
   start: () => set({ running: true }),
   pause: () => set({ running: false }),
+
+  startLiveCapture: () => {
+    const state = useCaptureStore.getState()
+
+    // If real probes are already connected → just activate live mode
+    // Real packets arrive via WebSocket correlation events — no SSE needed
+    if (state.probesStatus.probe1_connected || state.probesStatus.probe2_connected) {
+      set({ running: true, demoMode: false })
+      return
+    }
+
+    // No probes connected → fall back to SSE stream from server
+    const existingAbort = (window as any).__miniSharkAbort as AbortController | null
+    if (existingAbort) { existingAbort.abort(); (window as any).__miniSharkAbort = null }
+
+    set({ running: true, demoMode: false, packets: [], flights: [] })
+
+    const controller = new AbortController()
+    ;(window as any).__miniSharkAbort = controller
+    ;(window as any).__miniSharkSessionId = null
+
+    ;(async () => {
+      try {
+        const res = await fetch(`${API}/captures/stream?iface=ens33`, {
+          signal: controller.signal,
+        })
+        if (!res.ok || !res.body) return
+
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+
+          buf += decoder.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? ''
+
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed.startsWith('data:')) continue
+            if (controller.signal.aborted) return
+
+            try {
+              const msg = JSON.parse(trimmed.slice(5).trim())
+
+              // Save session_id so stop can call the server endpoint
+              if (msg.type === 'started' && msg.session_id) {
+                ;(window as any).__miniSharkSessionId = msg.session_id
+              }
+
+              if (msg.type === 'stopped') return
+              if (msg.type !== 'packet') continue
+
+              const state = useCaptureStore.getState()
+              if (!state.running) return
+
+              const status: Packet['status'] =
+                msg.dns_exfil_suspect ? 'dropped' : 'matched'
+
+              const packet = buildPacket({
+                id: state.seq,
+                timeUs: Math.round((msg.timestamp ?? Date.now() / 1000) * 1_000_000),
+                protocol: (msg.protocol || 'TCP') as any,
+                srcPort: Number(msg.src_port) || 0,
+                dstPort: Number(msg.dst_port) || 0,
+                ipId: 0,
+                ttl: 64,
+                payload: [],
+                status,
+                deltaTms: undefined,
+                note: msg.dns_exfil_suspect ? `DNS H=${msg.dns_entropy}` : undefined,
+                srcIp: msg.src_ip || '',
+                dstIp: msg.dst_ip || '',
+              })
+
+              useCaptureStore.setState((s) => ({
+                seq: s.seq + 1,
+                packets: [packet, ...s.packets].slice(0, MAX_PACKETS),
+              }))
+            } catch {}
+          }
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return
+      } finally {
+        useCaptureStore.setState({ running: false })
+      }
+    })()
+  },
+
+  stopLiveCapture: () => {
+    // 1. Tell the SERVER to stop via session_id
+    const sessionId = (window as any).__miniSharkSessionId
+    if (sessionId) {
+      fetch(`${API}/captures/stream/stop?session_id=${sessionId}`).catch(() => {})
+      ;(window as any).__miniSharkSessionId = null
+    }
+
+    // 2. Abort the fetch stream on the client side
+    const controller = (window as any).__miniSharkAbort as AbortController | null
+    if (controller) {
+      controller.abort()
+      ;(window as any).__miniSharkAbort = null
+    }
+
+    set({ running: false })
+  },
   setFilter: (filter) => set({ filter }),
 
   selectPacket: (id, flightId) =>
@@ -150,9 +262,11 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
 
   tickTraffic: (now) => {
     const s = get()
-    // In live network mode without demo mode, only tick if actual probes are connected
     if (!s.running) return
-    if (!s.demoMode && !s.probesStatus.probe1_connected) return
+    // If real probes are connected — do NOT generate fake demo traffic
+    // Real packets come via WebSocket correlation events
+    if (s.probesStatus.probe1_connected || s.probesStatus.probe2_connected) return
+    if (!s.demoMode) return
 
     const dnsMode = s.dnsBurst > 0
     const protocol = dnsMode ? 'DNS' : pick(['TCP', 'TCP', 'TCP', 'UDP', 'DNS', 'ICMP'] as const)
@@ -288,7 +402,7 @@ if (typeof window !== 'undefined') {
 
             const packet = buildPacket({
               id,
-              timeUs: 1_704_000_000_000_000 + id * 97_331,
+              timeUs: msg.t1_ns ? Math.round(msg.t1_ns / 1000) : 1_704_000_000_000_000 + id * 97_331,
               protocol: (msg.proto || 'TCP').toUpperCase() as any,
               srcPort: msg.src_port || 54210,
               dstPort: msg.dst_port || 80,
@@ -297,7 +411,11 @@ if (typeof window !== 'undefined') {
               payload: httpPayload(),
               status,
               deltaTms,
-              note: isDrop ? 'Silent drop on the wire' : undefined,
+              note: isDrop
+                ? `Silent drop on wire (timeout 500ms)`
+                : msg.fingerprint
+                  ? `fp: ${msg.fingerprint}`
+                  : undefined,
               srcIp,
               clientId: clientIdx,
             })
