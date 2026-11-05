@@ -5,8 +5,8 @@
 const envHost = import.meta.env.VITE_API_HOST
 const host =
   envHost ||
-  (typeof window !== 'undefined'
-    ? `http://192.168.130.129:8001`
+  (typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+    ? `http://${window.location.hostname}:8001`
     : 'http://192.168.130.129:8001')
 
 const wsHost = host.replace(/^http/, 'ws')
