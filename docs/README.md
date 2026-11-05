@@ -229,7 +229,161 @@ proposed unless marked implemented.
 > via `MINI_SHARK_DB`). Renaming requires a coordinated code + docs change; the
 > decision is tracked in [implementation.md](implementation.md).
 
-## Running the components
+## Running the System — Complete Commands
+
+### Network Setup (VMware Host-Only)
+
+```
+Windows Host  : 192.168.130.1   (browser + traffic generator)
+VM1 (Ubuntu)  : 192.168.130.129 (Central Server + Probe 2)
+VM2 (Ubuntu)  : 192.168.130.128 (Probe 1)
+```
+
+---
+
+### Step 1 — VM1: Start Central Server (Terminal 1)
+
+```bash
+cd ~/Mini_Shark
+source .venv/bin/activate
+python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8001
+```
+
+Expected output:
+```
+[E3] TCP ingestion server listening on 0.0.0.0:9000
+[API] REST + WebSocket available on port 8001
+INFO:     Application startup complete.
+```
+
+---
+
+### Step 2 — VM1: Start Probe 2 / Egress Observer (Terminal 2)
+
+```bash
+cd ~/Mini_Shark
+source .venv/bin/activate
+python3 run_probe.py --probe-id 2 --server 127.0.0.1:9000 --iface ens33
+```
+
+Optional — capture only specific traffic:
+```bash
+# Only ICMP (ping)
+python3 run_probe.py --probe-id 2 --server 127.0.0.1:9000 --iface ens33 --filter "icmp"
+
+# Only DNS
+python3 run_probe.py --probe-id 2 --server 127.0.0.1:9000 --iface ens33 --filter "port 53"
+
+# Only traffic from Windows host
+python3 run_probe.py --probe-id 2 --server 127.0.0.1:9000 --iface ens33 --filter "host 192.168.130.1"
+```
+
+---
+
+### Step 3 — VM2: Start Probe 1 / Ingress Observer (Terminal 1)
+
+```bash
+cd ~/Mini_Shark
+source .venv/bin/activate
+python3 run_probe.py --probe-id 1 --server 192.168.130.129:9000 --iface ens33
+```
+
+Optional filters (same options as Probe 2 above):
+```bash
+python3 run_probe.py --probe-id 1 --server 192.168.130.129:9000 --iface ens33 --filter "icmp"
+```
+
+---
+
+### Step 4 — Windows: Start React Dashboard
+
+```powershell
+cd "C:\path\to\Mini_Shark\frontend"
+npm run dev
+```
+
+Open browser at:
+```
+http://localhost:5173
+```
+
+---
+
+### Step 5 — Windows: Generate Test Traffic
+
+```powershell
+# TC-01: Normal traffic (continuous ping)
+ping 192.168.130.129 -t
+
+# TC-02: HTTP request
+curl.exe http://192.168.130.129:8001/health
+
+# TC-03: DNS query
+nslookup google.com 192.168.130.129
+
+# TC-04: DNS exfiltration test (high entropy)
+python test_anomalies.py
+```
+
+---
+
+### Step 6 — VM2: Inject Network Faults (for testing)
+
+```bash
+# TC-02: Inject 15% packet loss
+sudo tc qdisc add dev ens33 root netem loss 15%
+ping -c 30 192.168.130.129
+sudo tc qdisc del dev ens33 root      # remove after test
+
+# TC-03: Inject 75ms delay (bufferbloat)
+sudo tc qdisc add dev ens33 root netem delay 75ms 15ms
+ping -c 20 192.168.130.129
+sudo tc qdisc del dev ens33 root      # remove after test
+```
+
+---
+
+### Verify Everything is Working
+
+```bash
+# From VM2 — check server is reachable
+curl http://192.168.130.129:8001/health
+# Expected: {"status":"ok","version":"0.4.0",...}
+
+# From VM2 — check E3 port is open
+nc -zv 192.168.130.129 9000
+# Expected: Connection to 192.168.130.129 9000 port succeeded
+
+# From Windows browser
+http://192.168.130.129:8001/correlations/stats
+# Expected: {"total_records":N,"matched":N,"loss_rate":0.0,...}
+```
+
+---
+
+### Run Unit Tests
+
+```bash
+cd ~/Mini_Shark
+source .venv/bin/activate
+pytest tests/unit/ -v
+# Expected: 144 passed
+```
+
+---
+
+### Quick Reference
+
+| Component | Machine | Command | Port |
+|-----------|---------|---------|------|
+| Central Server | VM1 | `uvicorn backend.main:app --host 0.0.0.0 --port 8001` | 8001 |
+| E3 Telemetry Hub | VM1 | auto-starts with server | 9000 |
+| Probe 2 (Egress) | VM1 | `python3 run_probe.py --probe-id 2 --server 127.0.0.1:9000 --iface ens33` | — |
+| Probe 1 (Ingress) | VM2 | `python3 run_probe.py --probe-id 1 --server 192.168.130.129:9000 --iface ens33` | — |
+| React Dashboard | Windows | `npm run dev` (in frontend/) | 5173 |
+| API Health Check | Any | `curl http://192.168.130.129:8001/health` | — |
+
+## Running the components (legacy offline mode)
 
 ### Implemented today (offline analysis mode)
 

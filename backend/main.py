@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api.routes import router, get_hub, get_engine
+from .api.routes import router, get_hub, get_engine, _get_probes_status
 from .e4_query.diagnostics import run_diagnostics
 
 logger = logging.getLogger(__name__)
@@ -100,20 +100,46 @@ app.include_router(router)
 @app.get("/health")
 async def health_check() -> dict:
     hub    = get_hub()
-    engine = get_engine()
     stats  = hub.stats
     total  = stats["matched"] + stats["unmatched"]
+    probes = _get_probes_status(hub)
     return {
         "status":    "ok",
         "version":   "0.4.0",
         "e3_server": f"{E3_HOST}:{E3_PORT}",
-        "probes_connected": 0,   # TODO: track active connections in hub
+        "probes_connected": probes["total_connected"],
         "correlation_stats": {
             "matched":   stats["matched"],
             "unmatched": stats["unmatched"],
             "late":      stats["late"],
             "loss_rate": round(stats["unmatched"] / max(1, total), 4),
         },
+    }
+
+
+@app.get("/probes")
+async def probe_status() -> dict:
+    """Return current probe connection status — polled by the frontend every 2s."""
+    hub = get_hub()
+    return _get_probes_status(hub)
+
+
+def _get_probes_status(hub) -> dict:
+    """Build the ProbesStatus object the frontend expects."""
+    connected = hub.connected_probes  # dict: probe_id -> {ip, records}
+    p1 = connected.get(1) or connected.get(hub._probe1_id)
+    p2 = connected.get(2) or connected.get(hub._probe2_id)
+    clients = [
+        {"ip": v["ip"], "probe_id": k, "records": v["records"]}
+        for k, v in connected.items()
+    ]
+    return {
+        "probe1_connected": p1 is not None,
+        "probe1_ip":        p1["ip"] if p1 else None,
+        "probe2_connected": p2 is not None,
+        "probe2_ip":        p2["ip"] if p2 else None,
+        "active_clients":   clients,
+        "total_connected":  len(connected),
     }
 
 

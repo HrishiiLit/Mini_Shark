@@ -24,6 +24,27 @@ from backend.e2_dissection import ProtocolDissector
 from backend.e3_flows import FlowGrouper
 from backend.e3_flows.correlator import CorrelationHub
 from backend.e4_query import FILTER_FIELDS, QueryEngine
+
+
+def _get_probes_status(hub: "CorrelationHub") -> dict:
+    """Build the ProbesStatus object the frontend expects."""
+    connected = getattr(hub, 'connected_probes', {})
+    p1 = connected.get(1)
+    p2 = connected.get(2)
+    clients = [
+        {"ip": v["ip"], "probe_id": k, "records": v["records"]}
+        for k, v in connected.items()
+    ]
+    return {
+        "probe1_connected": p1 is not None,
+        "probe1_ip":        p1["ip"] if p1 else None,
+        "probe2_connected": p2 is not None,
+        "probe2_ip":        p2["ip"] if p2 else None,
+        "active_clients":   clients,
+        "total_connected":  len(connected),
+    }
+
+
 from backend.e4_query.diagnostics import run_diagnostics
 from backend.errors import FilterError, MiniSharkError, StorageError
 from backend.models import CorrelationRecord, DiagnosticAlert, Flow, Layer, Packet
@@ -227,6 +248,7 @@ async def websocket_live(ws: WebSocket) -> None:
             stats = get_engine().correlation_stats()
             probes = get_hub().probe_status()
             recent_alerts = get_engine().alerts(limit=5)
+            probes = _get_probes_status(get_hub())
             await ws.send_text(json.dumps({
                 "type": "metrics",
                 "timestamp": time.time(),
@@ -511,31 +533,34 @@ def live_capture(
     }
 
 
+# ── Per-session capture stop flags ──────────────────────────────────────────
+# Key = session_id (UUID), value = threading.Event
+import threading
+import uuid
+_capture_sessions: dict[str, threading.Event] = {}
+
+
 @router.get("/captures/stream")
 async def stream_live(
     iface: str | None = Query(default=None),
     bpf_filter: str = Query(default=""),
 ) -> Any:
-    """SSE endpoint — streams live packets one by one as they arrive.
-
-    The browser connects once and receives a continuous stream of JSON events.
-    Each event is one decoded packet. The stream runs until the client disconnects.
-
-    Event format (text/event-stream):
-        data: {"index":0,"timestamp":...,"src_ip":...,"protocol":...,...}
-    """
+    """SSE endpoint — streams live packets. Client gets a session_id in the
+    first event and calls GET /captures/stream/stop?session_id=... to stop."""
     from fastapi.responses import StreamingResponse
 
     if not _SCAPY_AVAILABLE:
         raise HTTPException(status_code=503, detail="scapy not installed")
 
     dissector = ProtocolDissector()
+    session_id = str(uuid.uuid4())
+    stop_event = threading.Event()
+    _capture_sessions[session_id] = stop_event
 
     async def event_generator():
-        """Yield SSE events indefinitely until client disconnects."""
         from backend.e1_capture.live import _pick_interface
         try:
-            from scapy.all import sniff, conf
+            from scapy.all import sniff
         except ImportError:
             yield "data: {\"error\": \"scapy not available\"}\n\n"
             return
@@ -544,87 +569,94 @@ async def stream_live(
         iface_str = str(getattr(selected_iface, 'name', selected_iface))
         index = 0
 
-        # Send a "started" event so the frontend knows capture began
-        yield f"data: {json.dumps({'type':'started','interface': iface_str})}\n\n"
+        yield f"data: {json.dumps({'type':'started','interface': iface_str,'session_id': session_id})}\n\n"
 
-        # Capture in small bursts — 0.3s for low latency
-        while True:
-            try:
-                # Capture up to 20 packets or 0.3 seconds, whichever comes first
-                raw_pkts = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: sniff(
-                        iface=selected_iface,
-                        count=20,
-                        timeout=0.3,
-                        filter=bpf_filter if bpf_filter else None,
-                        store=True,
-                    )
-                )
-            except Exception as exc:
-                yield f"data: {json.dumps({'type':'error','message': str(exc)})}\n\n"
-                return
-
-            for sp in raw_pkts:
+        try:
+            while not stop_event.is_set():
                 try:
-                    raw = bytes(sp)
-                    ts  = float(sp.time) if hasattr(sp, 'time') else time.time()
-                except Exception:
-                    continue
+                    raw_pkts = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: sniff(
+                            iface=selected_iface,
+                            count=20,
+                            timeout=0.3,
+                            filter=bpf_filter if bpf_filter else None,
+                            store=True,
+                        )
+                    )
+                except Exception as exc:
+                    yield f"data: {json.dumps({'type':'error','message': str(exc)})}\n\n"
+                    return
 
-                pkt     = Packet(index=index, timestamp=ts, length=len(raw), raw_bytes=raw)
-                decoded = dissector.dissect_one(pkt)
+                # Check stop flag again after sniff returns
+                if stop_event.is_set():
+                    break
 
-                # Build summary
-                src_ip = dst_ip = src_port = dst_port = protocol = info = ""
-                for layer in decoded.layers:
-                    f = layer.fields
-                    if layer.name in ("IPv4","IPv6") and not src_ip:
-                        src_ip, dst_ip, protocol = str(f.get("src","")), str(f.get("dst","")), layer.name
-                    if layer.name == "TCP" and not src_port:
-                        src_port, dst_port, protocol = str(f.get("src_port","")), str(f.get("dst_port","")), "TCP"
-                        info = f"Seq={f.get('seq','')} [{_tcp_flags(f.get('flags',0))}]"
-                    if layer.name == "UDP" and not src_port:
-                        src_port, dst_port, protocol = str(f.get("src_port","")), str(f.get("dst_port","")), "UDP"
-                    if layer.name == "DNS":
-                        protocol = "DNS"
-                        qs   = f.get("questions",[])
-                        info = f"{'Response' if f.get('response') else 'Query'}: {qs[0].get('name','') if qs else ''}"
-                    if layer.name == "HTTP":
-                        protocol = "HTTP"
-                        info = f.get("start_line","")
-                    if layer.name == "ICMP":
-                        protocol = "ICMP"
-                        info = f"Type={f.get('type','')} Code={f.get('code','')}"
-                    if layer.name == "ARP":
-                        protocol = "ARP"
-                        info = f"Who has {f.get('dst_ip','')}? Tell {f.get('src_ip','')}"
+                for sp in raw_pkts:
+                    if stop_event.is_set():
+                        break
+                    try:
+                        raw = bytes(sp)
+                        ts  = float(sp.time) if hasattr(sp, 'time') else time.time()
+                    except Exception:
+                        continue
 
-                event = {
-                    "type":      "packet",
-                    "index":     index,
-                    "timestamp": round(ts, 6),
-                    "length":    len(raw),
-                    "src_ip":    src_ip,
-                    "dst_ip":    dst_ip,
-                    "src_port":  src_port,
-                    "dst_port":  dst_port,
-                    "protocol":  protocol,
-                    "info":      info,
-                    "layer_names": [l.name for l in decoded.layers],
-                    "layers":    [_layer_dict(l) for l in decoded.layers],
-                    "fingerprint": f"0x{decoded.fingerprint.value:016X}" if decoded.fingerprint else None,
-                }
-                if decoded.dns_entropy is not None:
-                    event["dns_entropy"]      = round(decoded.dns_entropy, 4)
-                    event["dns_exfil_suspect"] = decoded.dns_entropy > 4.2
+                    pkt     = Packet(index=index, timestamp=ts, length=len(raw), raw_bytes=raw)
+                    decoded = dissector.dissect_one(pkt)
 
-                yield f"data: {json.dumps(event)}\n\n"
-                index += 1
+                    src_ip = dst_ip = src_port = dst_port = protocol = info = ""
+                    for layer in decoded.layers:
+                        f = layer.fields
+                        if layer.name in ("IPv4","IPv6") and not src_ip:
+                            src_ip, dst_ip, protocol = str(f.get("src","")), str(f.get("dst","")), layer.name
+                        if layer.name == "TCP" and not src_port:
+                            src_port, dst_port, protocol = str(f.get("src_port","")), str(f.get("dst_port","")), "TCP"
+                            info = f"Seq={f.get('seq','')} [{_tcp_flags(f.get('flags',0))}]"
+                        if layer.name == "UDP" and not src_port:
+                            src_port, dst_port, protocol = str(f.get("src_port","")), str(f.get("dst_port","")), "UDP"
+                        if layer.name == "DNS":
+                            protocol = "DNS"
+                            qs   = f.get("questions",[])
+                            info = f"{'Response' if f.get('response') else 'Query'}: {qs[0].get('name','') if qs else ''}"
+                        if layer.name == "HTTP":
+                            protocol = "HTTP"
+                            info = f.get("start_line","")
+                        if layer.name == "ICMP":
+                            protocol = "ICMP"
+                            info = f"Type={f.get('type','')} Code={f.get('code','')}"
+                        if layer.name == "ARP":
+                            protocol = "ARP"
+                            info = f"Who has {f.get('dst_ip','')}? Tell {f.get('src_ip','')}"
 
-            # Heartbeat every 50 packets to reduce overhead
-            if index % 50 == 0 and index > 0:
-                yield f"data: {json.dumps({'type':'heartbeat','total': index})}\n\n"
+                    event = {
+                        "type":      "packet",
+                        "index":     index,
+                        "timestamp": round(ts, 6),
+                        "length":    len(raw),
+                        "src_ip":    src_ip,
+                        "dst_ip":    dst_ip,
+                        "src_port":  src_port,
+                        "dst_port":  dst_port,
+                        "protocol":  protocol,
+                        "info":      info,
+                        "layer_names": [l.name for l in decoded.layers],
+                        "layers":    [_layer_dict(l) for l in decoded.layers],
+                        "fingerprint": f"0x{decoded.fingerprint.value:016X}" if decoded.fingerprint else None,
+                    }
+                    if decoded.dns_entropy is not None:
+                        event["dns_entropy"]       = round(decoded.dns_entropy, 4)
+                        event["dns_exfil_suspect"] = decoded.dns_entropy > 4.2
+
+                    yield f"data: {json.dumps(event)}\n\n"
+                    index += 1
+
+                if index % 50 == 0 and index > 0:
+                    yield f"data: {json.dumps({'type':'heartbeat','total': index})}\n\n"
+
+        finally:
+            # Clean up session
+            _capture_sessions.pop(session_id, None)
+            yield f"data: {json.dumps({'type':'stopped','total': index})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -635,6 +667,16 @@ async def stream_live(
             "Access-Control-Allow-Origin": "*",
         },
     )
+
+
+@router.get("/captures/stream/stop")
+def stop_stream(session_id: str = Query(description="Session ID from the stream started event")) -> dict:
+    """Stop a running live capture stream by session ID."""
+    event = _capture_sessions.get(session_id)
+    if event:
+        event.set()
+        return {"status": "stopped", "session_id": session_id}
+    return {"status": "not_found", "session_id": session_id}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

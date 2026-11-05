@@ -101,6 +101,9 @@ class CorrelationHub:
         # public records list (used when no callback given)
         self.records: list[CorrelationRecord] = []
 
+        # connected probe tracking: probe_id → {"ip": str, "records": int}
+        self.connected_probes: dict[int, dict] = {}
+
         # stats
         self.stats: dict[str, int] = {
             "matched": 0,
@@ -236,6 +239,8 @@ class CorrelationHub:
         writer: asyncio.StreamWriter,
     ) -> None:
         peer = writer.get_extra_info("peername")
+        peer_ip = peer[0] if peer else "unknown"
+        probe_id = None
         logger.info("Probe connected from %s", peer)
         self.connected_probes[peer] = {
             "peer": peer,
@@ -247,15 +252,24 @@ class CorrelationHub:
             "records": 0,
         }
         try:
-            await self._read_preamble(reader, peer)
-            await self._read_records(reader, peer)
+            probe_id = await self._read_preamble(reader, peer)
+            # Register probe as connected
+            self.connected_probes[probe_id] = {
+                "ip": peer_ip,
+                "records": 0,
+                "probe_id": probe_id,
+            }
+            logger.info("Probe %d registered from %s", probe_id, peer_ip)
+            await self._read_records(reader, peer, probe_id)
         except asyncio.IncompleteReadError:
             logger.info("Probe %s disconnected", peer)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Probe %s error: %s", peer, exc)
         finally:
-            if peer in self.connected_probes:
-                del self.connected_probes[peer]
+            # Unregister probe on disconnect
+            if probe_id is not None and probe_id in self.connected_probes:
+                del self.connected_probes[probe_id]
+                logger.info("Probe %d unregistered", probe_id)
             writer.close()
             try:
                 await writer.wait_closed()
@@ -264,12 +278,13 @@ class CorrelationHub:
 
     async def _read_preamble(
         self, reader: asyncio.StreamReader, peer: Any
-    ) -> None:
-        """Read and validate the 16-byte connection preamble."""
+    ) -> int:
+        """Read and validate the 16-byte connection preamble. Returns probe_id."""
         data = await reader.readexactly(_PREAMBLE_SIZE)
         magic   = data[0:4]
         version = data[4]
         rec_sz  = data[5]
+        probe_id = int.from_bytes(data[6:8], "big")
 
         if magic != _PREAMBLE_MAGIC:
             raise ValueError(f"Bad preamble magic from {peer}: {magic!r}")
@@ -277,10 +292,11 @@ class CorrelationHub:
             raise ValueError(f"Unsupported preamble version {version} from {peer}")
         if rec_sz != _RECORD_SIZE:
             raise ValueError(f"Unexpected record size {rec_sz} from {peer}")
-        logger.info("Preamble OK from %s (record_size=%d)", peer, rec_sz)
+        logger.info("Preamble OK from %s probe_id=%d (record_size=%d)", peer, probe_id, rec_sz)
+        return probe_id
 
     async def _read_records(
-        self, reader: asyncio.StreamReader, peer: Any
+        self, reader: asyncio.StreamReader, peer: Any, probe_id: int = 0
     ) -> None:
         """Read fixed-size 24-byte records until connection closes."""
         while True:
@@ -295,6 +311,9 @@ class CorrelationHub:
                 self.connected_probes[peer]["last_seen"] = time.time()
                 self.connected_probes[peer]["records"] += 1
             self.ingest(telemetry)
+            # Track record count per probe
+            if probe_id in self.connected_probes:
+                self.connected_probes[probe_id]["records"] += 1
 
 
     def probe_status(self) -> dict[str, Any]:
