@@ -55,12 +55,36 @@ function Scene() {
   const clientCount = useCaptureStore((s) => s.clientCount)
   const clients = useCaptureStore((s) => s.clients)
   const setFilter = useCaptureStore((s) => s.setFilter)
+  const probes = useCaptureStore((s) => s.probesStatus)
+  const demoMode = useCaptureStore((s) => s.demoMode)
 
-  const activeClients = useMemo(() => clients.slice(0, clientCount), [clients, clientCount])
+  const p1Connected = probes.probe1_connected || demoMode
+  const p2Connected = probes.probe2_connected || demoMode
+
+  const activeClients = useMemo(() => {
+    if (demoMode) return clients.slice(0, clientCount)
+    if (probes.probe1_connected) {
+      return [
+        {
+          id: 0,
+          name: 'Linux Client (VM2)',
+          ip: probes.probe1_ip || '192.168.10.11',
+          probeBadge: 'Probe 1 · Ingress · LIVE',
+          os: 'Ubuntu Linux',
+          vm: 'VM 2 (Probe 1)',
+        },
+      ]
+    }
+    return []
+  }, [demoMode, clientCount, clients, probes.probe1_connected, probes.probe1_ip])
+
+  const effectiveClientCount = Math.max(1, activeClients.length)
   const clientCurves = useMemo(
-    () => activeClients.map((_, i) => getClientCurve(i, clientCount)),
-    [activeClients, clientCount],
+    () => activeClients.map((_, i) => getClientCurve(i, effectiveClientCount)),
+    [activeClients, effectiveClientCount],
   )
+
+  const standbyClientCurve = useMemo(() => getClientCurve(0, 1), [])
 
   return (
     <group>
@@ -69,70 +93,122 @@ function Scene() {
         <meshStandardMaterial color="#ffffff" roughness={0.92} metalness={0.04} />
       </mesh>
 
-      {/* Ingress cables from all active clients */}
-      {clientCurves.map((curve, i) => (
-        <Cable key={`cable-in-${i}-${clientCount}`} curve={curve} color="#2563EB" />
-      ))}
-      {/* Egress cable to server */}
-      <Cable curve={curveOut} color="#059669" />
+      {/* Ingress Cables */}
+      {p1OnlineCables(p1Connected, clientCurves, standbyClientCurve)}
+
+      {/* Egress Cable to Server */}
+      <Cable curve={curveOut} color={p2Connected ? '#059669' : '#CBD5E1'} standby={!p2Connected} />
 
       {/* Idle pulses for each active client link */}
-      {activeClients.map((_, i) => (
-        <IdlePulses key={`pulse-${i}-${clientCount}`} active={running} clientIndex={i} totalClients={clientCount} />
-      ))}
+      {p1Connected &&
+        activeClients.map((_, i) => (
+          <IdlePulses
+            key={`pulse-${i}-${effectiveClientCount}`}
+            active={running}
+            clientIndex={i}
+            totalClients={effectiveClientCount}
+          />
+        ))}
 
-      {/* Dynamic Client Nodes */}
-      {activeClients.map((c, i) => (
+      {/* Client Nodes: either active live/demo clients OR standby waiting placeholder */}
+      {p1Connected ? (
+        activeClients.map((c, i) => (
+          <ProbeNode
+            key={`client-node-${c.id}-${effectiveClientCount}`}
+            position={getClientPosition(i, effectiveClientCount)}
+            color="#2563EB"
+            title={c.name}
+            subtitle={c.ip}
+            badge={`${c.vm} · Ingress`}
+            tone="blue"
+            onClick={() => setFilter(`ip.src == ${c.ip}`)}
+          />
+        ))
+      ) : (
         <ProbeNode
-          key={`client-node-${c.id}-${clientCount}`}
-          position={getClientPosition(i, clientCount)}
-          color="#2563EB"
-          title={c.name}
-          subtitle={c.ip}
-          badge={`${c.vm} · Ingress`}
-          tone="blue"
-          onClick={() => setFilter(`ip.src == ${c.ip}`)}
+          position={getClientPosition(0, 1)}
+          color="#94A3B8"
+          title="Awaiting Linux Probe"
+          subtitle="Disconnected · Waiting on :9000"
+          badge="Probe 1 · Standby (VM2)"
+          tone="slate"
+          onClick={() => setFilter('')}
         />
-      ))}
+      )}
 
-      {/* Central Correlation Router Node */}
+      {/* Central Correlation Router Node (always online in hub process) */}
       <RouterNode onResetFilter={() => setFilter('')} />
 
-      {/* Egress Server Node */}
-      <ProbeNode
-        position={SERVER_POS}
-        color="#059669"
-        title="Server Node"
-        subtitle="192.168.20.20"
-        badge="Probe 2 · Egress · VMnet3"
-        tone="green"
-        rippleKey={serverRipple}
-        onClick={() => setFilter('ip.dst == 192.168.20.20')}
-      />
+      {/* Egress Server Node: active or standby */}
+      {p2Connected ? (
+        <ProbeNode
+          position={SERVER_POS}
+          color="#059669"
+          title="Server Node (VM4)"
+          subtitle={probes.probe2_ip || '192.168.20.20'}
+          badge="Probe 2 · Egress · LIVE"
+          tone="green"
+          rippleKey={serverRipple}
+          onClick={() => setFilter(`ip.dst == ${probes.probe2_ip || '192.168.20.20'}`)}
+        />
+      ) : (
+        <ProbeNode
+          position={SERVER_POS}
+          color="#94A3B8"
+          title="Awaiting Server Probe"
+          subtitle="Disconnected · Waiting on :9000"
+          badge="Probe 2 · Standby (VM4)"
+          tone="slate"
+          onClick={() => setFilter('')}
+        />
+      )}
 
       {/* Animated Packet Particle Flights */}
       {flights.map((f) => (
-        <PacketParticle key={f.id} flight={f} totalClients={clientCount} />
+        <PacketParticle key={f.id} flight={f} totalClients={effectiveClientCount} />
       ))}
     </group>
   )
 }
 
-function Cable({ curve, color }: { curve: THREE.QuadraticBezierCurve3; color: string }) {
-  const core = useMemo(() => new THREE.TubeGeometry(curve, 96, 0.046, 18, false), [curve])
-  const glow = useMemo(() => new THREE.TubeGeometry(curve, 96, 0.11, 18, false), [curve])
-  const halo = useMemo(() => new THREE.TubeGeometry(curve, 64, 0.18, 12, false), [curve])
+function p1OnlineCables(
+  p1Connected: boolean,
+  clientCurves: THREE.QuadraticBezierCurve3[],
+  standbyCurve: THREE.QuadraticBezierCurve3,
+) {
+  if (p1Connected && clientCurves.length > 0) {
+    return clientCurves.map((curve, i) => <Cable key={`cable-in-${i}`} curve={curve} color="#2563EB" />)
+  }
+  return <Cable curve={standbyCurve} color="#CBD5E1" standby />
+}
+
+function Cable({
+  curve,
+  color,
+  standby = false,
+}: {
+  curve: THREE.QuadraticBezierCurve3
+  color: string
+  standby?: boolean
+}) {
+  const core = useMemo(() => new THREE.TubeGeometry(curve, 96, standby ? 0.024 : 0.046, 18, false), [curve, standby])
+  const glow = useMemo(() => new THREE.TubeGeometry(curve, 96, standby ? 0.04 : 0.11, 18, false), [curve, standby])
   return (
     <group>
       <mesh geometry={core}>
-        <meshStandardMaterial color={color} metalness={0.42} roughness={0.18} />
+        <meshStandardMaterial
+          color={color}
+          metalness={standby ? 0.05 : 0.42}
+          roughness={standby ? 0.8 : 0.18}
+          transparent={standby}
+          opacity={standby ? 0.45 : 1}
+        />
       </mesh>
-      <mesh geometry={glow}>
-        <meshBasicMaterial color={color} transparent opacity={0.16} />
-      </mesh>
-      <mesh geometry={halo}>
-        <meshBasicMaterial color={color} transparent opacity={0.05} />
-      </mesh>
+      {!standby && (
+        <mesh geometry={glow}>
+          <meshBasicMaterial color={color} transparent opacity={0.16} />
+        </mesh>
+      )}
     </group>
   )
 }
@@ -189,15 +265,16 @@ function ProbeNode({
   title: string
   subtitle: string
   badge: string
-  tone: 'blue' | 'green'
+  tone: 'blue' | 'green' | 'slate'
   rippleKey?: number
   onClick?: () => void
 }) {
   const [hovered, setHovered] = useState(false)
+  const isStandby = tone === 'slate'
   const ring = useRef<THREE.Mesh>(null)
   useCursor(hovered)
   useFrame(() => {
-    if (!ring.current || !rippleKey) return
+    if (!ring.current || !rippleKey || isStandby) return
     const age = (performance.now() - rippleKey) / 720
     if (age > 1) {
       ring.current.visible = false
@@ -222,22 +299,26 @@ function ProbeNode({
     >
       <mesh position={[0, -0.2, 0]}>
         <cylinderGeometry args={[0.78, 0.88, 0.14, 40]} />
-        <meshStandardMaterial color="#ffffff" metalness={0.18} roughness={0.24} />
+        <meshStandardMaterial color={isStandby ? '#f1f5f9' : '#ffffff'} metalness={0.18} roughness={0.24} />
       </mesh>
       <mesh>
         <sphereGeometry args={[0.42, 48, 48]} />
         <meshStandardMaterial
           color={color}
           emissive={color}
-          emissiveIntensity={hovered ? 1.05 : 0.48}
-          roughness={0.2}
-          metalness={0.12}
+          emissiveIntensity={isStandby ? 0.05 : hovered ? 1.05 : 0.48}
+          roughness={isStandby ? 0.8 : 0.2}
+          metalness={isStandby ? 0.05 : 0.12}
+          transparent={isStandby}
+          opacity={isStandby ? 0.65 : 1}
         />
       </mesh>
-      <mesh ref={ring} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} visible={false}>
-        <ringGeometry args={[0.44, 0.62, 56]} />
-        <meshBasicMaterial color="#059669" transparent opacity={0.7} side={THREE.DoubleSide} />
-      </mesh>
+      {!isStandby && (
+        <mesh ref={ring} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} visible={false}>
+          <ringGeometry args={[0.44, 0.62, 56]} />
+          <meshBasicMaterial color="#059669" transparent opacity={0.7} side={THREE.DoubleSide} />
+        </mesh>
+      )}
       <Html position={[0, 0.78, 0]} center distanceFactor={10} zIndexRange={[5, 0]} occlude={false} pointerEvents="none">
         <div className={`ms-node ${tone}`}>
           <div className="ms-pill">{badge}</div>
@@ -282,8 +363,8 @@ function RouterNode({ onResetFilter }: { onResetFilter?: () => void }) {
       <Html position={[0, 0.86, 0]} center distanceFactor={10} zIndexRange={[5, 0]} occlude={false} pointerEvents="none">
         <div className="ms-node cyan">
           <div className="ms-pill">MiniShark-Host · E3</div>
-          <strong>Router Node</strong>
-          <span>TCP :9000 correlation</span>
+          <strong>Router Node (Hub)</strong>
+          <span>TCP :9000 Hub Listening</span>
         </div>
       </Html>
     </group>
@@ -412,9 +493,24 @@ function FpsMeter() {
 }
 
 function Legend() {
+  const demoMode = useCaptureStore((s) => s.demoMode)
+  const probes = useCaptureStore((s) => s.probesStatus)
+
   return (
     <div className="absolute bottom-3 left-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 px-3 py-2 text-[11px] text-slate-600 shadow-sm backdrop-blur">
       <span className="font-display text-[10px] uppercase tracking-[0.14em] text-slate-400">Observatory</span>
+      <span className="flex items-center gap-1.5 font-semibold text-slate-800">
+        <span
+          className={`h-2 w-2 rounded-full ${
+            demoMode ? 'bg-blue-600' : probes.total_connected > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+          }`}
+        />
+        {demoMode
+          ? 'Simulation Active'
+          : probes.total_connected > 0
+            ? `${probes.total_connected} Probe(s) Live`
+            : 'Standby: Probes Disconnected'}
+      </span>
       <span className="flex items-center gap-1.5">
         <i className="h-2 w-2 rounded-full bg-[#38BDF8]" /> Cyan ΔT
       </span>

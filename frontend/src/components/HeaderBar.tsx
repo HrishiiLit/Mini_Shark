@@ -5,11 +5,14 @@ import { useCaptureStore } from '../store/useCaptureStore'
 export function HeaderBar() {
   const filter = useCaptureStore((s) => s.filter)
   const setFilter = useCaptureStore((s) => s.setFilter)
-  const running = useCaptureStore((s) => s.running)
   const memoryMb = useCaptureStore((s) => s.memoryMb)
   const fps = useCaptureStore((s) => s.fps)
   const clientCount = useCaptureStore((s) => s.clientCount)
-  const wsConnected = useCaptureStore((s) => s.wsConnected)
+  const probes = useCaptureStore((s) => s.probesStatus)
+  const demoMode = useCaptureStore((s) => s.demoMode)
+
+  const p1Online = probes.probe1_connected || demoMode
+  const p2Online = probes.probe2_connected || demoMode
 
   return (
     <header className="sticky top-0 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200/80 bg-white/90 px-4 py-2 backdrop-blur-md">
@@ -31,21 +34,33 @@ export function HeaderBar() {
       <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-1.5">
         <Pill
           icon={<Radio size={12} />}
-          label="Ingress Probes"
-          value={`${clientCount} Node${clientCount > 1 ? 's' : ''} :9000`}
-          accent="blue"
-          live={running || wsConnected}
+          label="Ingress Probe"
+          value={
+            demoMode
+              ? `Demo (${clientCount} Nodes)`
+              : probes.probe1_connected
+                ? `● Connected (${probes.probe1_ip || 'VM2'})`
+                : '○ Disconnected / Waiting :9000'
+          }
+          accent={p1Online ? 'blue' : 'slate'}
+          live={p1Online}
         />
         <Pill
           icon={<Radio size={12} />}
           label="Egress Probe"
-          value="Active :9000"
-          accent="teal"
-          live={running || wsConnected}
+          value={
+            demoMode
+              ? 'Demo (VM4)'
+              : probes.probe2_connected
+                ? `● Connected (${probes.probe2_ip || 'VM4'})`
+                : '○ Disconnected / Waiting :9000'
+          }
+          accent={p2Online ? 'teal' : 'slate'}
+          live={p2Online}
         />
         <Pill
           icon={<Cpu size={12} />}
-          label="Correlation Engine"
+          label="Correlation Hub"
           value={`O(1) Hash Table · ${Math.round(fps)} FPS`}
           accent="cyan"
         />
@@ -100,20 +115,20 @@ function Pill({
     blue: 'border-blue-200 bg-blue-50 text-blue-800',
     teal: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     cyan: 'border-sky-200 bg-sky-50 text-sky-800',
-    slate: 'border-slate-200 bg-slate-50 text-slate-700',
+    slate: 'border-slate-200 bg-slate-50 text-slate-500',
   }[accent]
   const dot = {
     blue: 'bg-[#2563EB]',
     teal: 'bg-[#059669]',
     cyan: 'bg-[#0284C7]',
-    slate: 'bg-slate-500',
+    slate: 'bg-slate-400',
   }[accent]
 
   return (
     <div className={`flex items-center gap-2 rounded-xl border px-2.5 py-1 text-[11px] font-medium shadow-sm transition ${tones}`}>
-      <span className="text-slate-500">{icon}</span>
+      <span className="text-slate-400">{icon}</span>
       <span>{label}</span>
-      <span className="flex items-center gap-1 font-semibold text-slate-900">
+      <span className="flex items-center gap-1 font-semibold text-slate-800">
         <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot} ${live ? 'animate-pulse' : ''}`} />
         {value}
       </span>

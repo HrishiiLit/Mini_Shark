@@ -225,11 +225,13 @@ async def websocket_live(ws: WebSocket) -> None:
         while True:
             # Push a metrics snapshot every second
             stats = get_engine().correlation_stats()
+            probes = get_hub().probe_status()
             recent_alerts = get_engine().alerts(limit=5)
             await ws.send_text(json.dumps({
                 "type": "metrics",
                 "timestamp": time.time(),
                 "stats": stats,
+                "probes": probes,
                 "recent_alerts": [_alert_dict(a) for a in recent_alerts],
             }))
             await asyncio.sleep(1)
@@ -241,6 +243,12 @@ async def websocket_live(ws: WebSocket) -> None:
         if ws in _ws_clients:
             _ws_clients.remove(ws)
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+@router.get("/probes")
+def get_connected_probes() -> dict[str, Any]:
+    """Return real-time status of connected edge probes."""
+    return get_hub().probe_status()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Offline PCAP capture routes

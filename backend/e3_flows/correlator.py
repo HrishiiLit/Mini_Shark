@@ -109,6 +109,7 @@ class CorrelationHub:
             "duplicate_t2": 0,
             "probe2_only": 0,
         }
+        self.connected_probes: dict[Any, dict[str, Any]] = {}
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -236,6 +237,15 @@ class CorrelationHub:
     ) -> None:
         peer = writer.get_extra_info("peername")
         logger.info("Probe connected from %s", peer)
+        self.connected_probes[peer] = {
+            "peer": peer,
+            "ip": str(peer[0]) if peer else "unknown",
+            "port": peer[1] if peer else 0,
+            "connected_at": time.time(),
+            "last_seen": time.time(),
+            "probe_id": None,
+            "records": 0,
+        }
         try:
             await self._read_preamble(reader, peer)
             await self._read_records(reader, peer)
@@ -244,6 +254,8 @@ class CorrelationHub:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Probe %s error: %s", peer, exc)
         finally:
+            if peer in self.connected_probes:
+                del self.connected_probes[peer]
             writer.close()
             try:
                 await writer.wait_closed()
@@ -278,7 +290,37 @@ class CorrelationHub:
             except ValueError as exc:
                 logger.warning("Malformed record from %s: %s", peer, exc)
                 continue
+            if peer in self.connected_probes:
+                self.connected_probes[peer]["probe_id"] = telemetry.probe_id
+                self.connected_probes[peer]["last_seen"] = time.time()
+                self.connected_probes[peer]["records"] += 1
             self.ingest(telemetry)
+
+
+    def probe_status(self) -> dict[str, Any]:
+        """Return connected probes snapshot."""
+        now = time.time()
+        probes = list(self.connected_probes.values())
+        p1 = next((p for p in probes if p["probe_id"] == self._probe1_id), None)
+        p2 = next((p for p in probes if p["probe_id"] == self._probe2_id), None)
+        active_list = [
+            {
+                "ip": p["ip"],
+                "probe_id": p["probe_id"],
+                "records": p["records"],
+                "connected_at": p["connected_at"],
+            }
+            for p in probes
+            if (now - p["last_seen"]) < 10.0
+        ]
+        return {
+            "probe1_connected": p1 is not None and (now - p1["last_seen"]) < 10.0,
+            "probe1_ip": p1["ip"] if p1 else None,
+            "probe2_connected": p2 is not None and (now - p2["last_seen"]) < 10.0,
+            "probe2_ip": p2["ip"] if p2 else None,
+            "active_clients": active_list,
+            "total_connected": len(active_list),
+        }
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
