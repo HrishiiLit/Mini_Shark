@@ -320,8 +320,8 @@ class CorrelationHub:
         p1 = self.connected_probes.get(self._probe1_id)
         p2 = self.connected_probes.get(self._probe2_id)
 
-        p1_online = p1 is not None and (now - p1.get("last_seen", 0)) < 15.0
-        p2_online = p2 is not None and (now - p2.get("last_seen", 0)) < 15.0
+        p1_online = p1 is not None and (now - p1.get("last_seen", 0)) < 30.0
+        p2_online = p2 is not None and (now - p2.get("last_seen", 0)) < 30.0
 
         active_list = [
             {
@@ -331,7 +331,7 @@ class CorrelationHub:
                 "connected_at": p.get("connected_at", now),
             }
             for p in self.connected_probes.values()
-            if (now - p.get("last_seen", 0)) < 15.0
+            if (now - p.get("last_seen", 0)) < 30.0
         ]
         return {
             "probe1_connected": p1_online,
