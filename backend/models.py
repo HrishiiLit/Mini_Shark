@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from enum import IntFlag, StrEnum
+from enum import Enum, IntFlag
+class StrEnum(str, Enum): pass
 from typing import Any
 
 
@@ -256,6 +257,19 @@ class CorrelationRecord:
             return None
         return self.delay_ns / 1_000_000.0
 
+
+
+@dataclass(frozen=True)
+class DiagnosticAlert:
+    category: str
+    severity: str
+    confidence: str
+    detected_at_ns: int
+    recommended_action: str
+    evidence_refs: list[int] = field(default_factory=list)
+    metrics: dict[str, float] = field(default_factory=dict)
+    alert_id: int | None = None
+    resolved_at_ns: int | None = None
 
 @dataclass(frozen=True)
 class Flow:

@@ -49,3 +49,11 @@ powershell.cmd
 
 # Node / npm artefacts (if frontend uses npm)
 node_modules/
+
+# SQLite temporary WAL files
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Local documentation / Word files
+*.docx

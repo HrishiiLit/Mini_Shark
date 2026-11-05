@@ -1,3 +1,5 @@
+from __future__ import annotations
+import anyio
 """Integration and unit tests for TCP Telemetry Ingestion (ingestion.py).
 
 Tests:
@@ -10,7 +12,6 @@ Tests:
   - Graceful disconnect and status updates
 """
 
-from __future__ import annotations
 
 import asyncio
 import socket
@@ -37,10 +38,12 @@ def anyio_backend():
     return "asyncio"
 
 
-async def _wait_until(predicate):
-    async with asyncio.timeout(2):
-        while not predicate():
-            await asyncio.sleep(0.005)
+async def _wait_until(predicate, timeout=2.0):
+    start = time.time()
+    while not predicate():
+        if time.time() - start > timeout:
+            raise TimeoutError('Condition not met within timeout')
+        await asyncio.sleep(0.01)
 
 
 @pytest.mark.parametrize("offset,value", [(0, 0), (4, 2), (5, 25), (6, 1), (12, 1)])

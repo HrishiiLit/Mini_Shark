@@ -1,3 +1,25 @@
+from __future__ import annotations
+
+import asyncio   # must be imported before the version-check block below
+import sys
+
+if sys.version_info >= (3, 11):
+    _async_timeout = asyncio.timeout
+else:
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _async_timeout(delay):
+        loop = asyncio.get_running_loop()
+        task = asyncio.current_task()
+        handle = loop.call_later(delay, task.cancel)
+        try:
+            yield
+        except asyncio.CancelledError:
+            raise asyncio.TimeoutError() from None
+        finally:
+            handle.cancel()
+
 """TCP Telemetry Ingestion Service (Engine E3) — Port 9000.
 
 Implements the persistent TCP ingestion service specified in data_contract.md §4
@@ -11,9 +33,7 @@ and api_routes.md §2:
   - Provides a reusable TelemetryClient for probes and tests.
 """
 
-from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from contextlib import suppress
@@ -28,7 +48,6 @@ logger = logging.getLogger("minishark.e3.ingestion")
 
 PREAMBLE_SIZE = 16
 RECORD_SIZE = 24
-
 
 @dataclass
 class ConnectedProbe:
@@ -165,12 +184,12 @@ class TelemetryServer:
         try:
             if not accepted:
                 raise ValueError("connection limit reached")
-            async with asyncio.timeout(self.idle_timeout_s):
+            async with _async_timeout(self.idle_timeout_s):
                 raw = await reader.readexactly(PREAMBLE_SIZE)
             preamble = TelemetryPreamble.unpack(raw)
             clock_offset = time.time() - preamble.probe_clock_epoch_s
             while self._is_running:
-                async with asyncio.timeout(self.idle_timeout_s):
+                async with _async_timeout(self.idle_timeout_s):
                     raw = await reader.readexactly(RECORD_SIZE)
                 record = ProbeTelemetry.unpack(raw)
                 self._validate_record(record, probe_id_assigned, writer)
@@ -244,12 +263,14 @@ class TelemetryServer:
             probe.last_heartbeat_ns = now
             return
         probe.packets_received += 1
-        suspect = (
-            abs(record.timestamp_ns - now) > self.clock_tolerance_ns
-            or abs(clock_offset * 1_000_000_000) > self.clock_tolerance_ns
-        )
-        flags = int(CorrelationFlags.CLOCK_SKEW_SUSPECT) if suspect else 0
-        self.engine.process_telemetry(record, flags=flags)
+        # Clock skew is evaluated by CorrelationEngine._match() after both
+        # probe timestamps (T1 and T2) are available and can be compared
+        # against each other — not against hub wall-clock time.  Comparing
+        # record.timestamp_ns to hub time.time_ns() produces false positives
+        # whenever the probe and hub clocks differ by even a few seconds
+        # (common across independent VMs without NTP).  Pass flags=0 here;
+        # the correlator sets CLOCK_SKEW_SUSPECT when delay_ns < 0 or > 10 s.
+        self.engine.process_telemetry(record, flags=0)
 
     # -----------------------------------------------------------------------
     # Expiration Background Task
