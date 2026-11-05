@@ -10,7 +10,7 @@ Two backends — whichever is available is used automatically:
 
 Usage::
 
-    capturer = get_live_capturer("eth0")   # Linux
+    capturer = get_live_capturer("ens33")  # Linux
     capturer = get_live_capturer("Wi-Fi")  # Windows
     packets  = capturer.capture(count=50)  # list[Packet]
 
@@ -25,14 +25,20 @@ Requirements (Linux):
 
 from __future__ import annotations
 
+import logging
+import os
 import platform
+import re
 import select
 import socket
 import struct
+import subprocess
 import time
 from collections.abc import Iterator
 
 from backend.models import Packet
+
+logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────
 # Scapy / Windows path
@@ -169,6 +175,90 @@ _PACKET_ADD_MEMBERSHIP = 1
 _PACKET_MR_PROMISC = 1
 
 
+def _linux_interfaces() -> list[str]:
+    """Return all non-loopback network interface names present on this Linux host."""
+    interfaces: list[str] = []
+    if hasattr(socket, "if_nameindex"):
+        try:
+            interfaces = [name for _, name in socket.if_nameindex() if name != "lo"]
+        except Exception:
+            pass
+    if not interfaces and os.path.exists("/sys/class/net"):
+        try:
+            interfaces = [
+                name for name in os.listdir("/sys/class/net")
+                if name != "lo" and not name.startswith(".")
+            ]
+        except Exception:
+            pass
+    return interfaces
+
+
+def _pick_linux_interface(
+    iface: str | None = None,
+    target_host: str | None = None,
+) -> str:
+    """Return the best available Linux network interface.
+
+    If ``iface`` is given explicitly and exists on the host, it is used.
+    If ``iface`` does not exist or is None:
+      1. Tries to determine which interface routes to ``target_host`` (via ``ip route get``).
+      2. Tries the default gateway interface from ``/proc/net/route``.
+      3. Tries the first non-loopback interface whose operstate is 'up'.
+      4. Falls back to the first available non-loopback interface, or 'eth0'.
+    """
+    available = _linux_interfaces()
+
+    # 1. User gave an explicit interface that exists
+    if iface and iface in available:
+        return iface
+
+    # 2. Try routing to target_host if specified
+    if target_host and target_host not in ("127.0.0.1", "localhost", "::1"):
+        try:
+            out = subprocess.check_output(
+                ["ip", "-o", "-4", "route", "get", target_host],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=2.0,
+            )
+            m = re.search(r"dev\s+(\S+)", out)
+            if m and m.group(1) in available:
+                return m.group(1)
+        except Exception:
+            pass
+
+    # 3. Default route from /proc/net/route
+    try:
+        if os.path.exists("/proc/net/route"):
+            with open("/proc/net/route") as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 2 and parts[1] == "00000000":
+                        candidate = parts[0]
+                        if candidate in available:
+                            return candidate
+    except Exception:
+        pass
+
+    # 4. First interface with operstate == up
+    for candidate in available:
+        try:
+            operstate_path = f"/sys/class/net/{candidate}/operstate"
+            if os.path.exists(operstate_path):
+                with open(operstate_path) as f:
+                    if f.read().strip().lower() == "up":
+                        return candidate
+        except Exception:
+            pass
+
+    # 5. First available non-loopback interface
+    if available:
+        return available[0]
+
+    return iface or "eth0"
+
+
 def _set_promisc(sock: socket.socket, iface: str) -> None:
     """Best-effort: enable promiscuous mode on *iface* via PACKET_ADD_MEMBERSHIP."""
     try:
@@ -191,13 +281,13 @@ class AFPacketCapture:
         timeout: Per-burst select() timeout in seconds (default 2.0).
     """
 
-    def __init__(self, iface: str = "eth0", timeout: float = 2.0) -> None:
+    def __init__(self, iface: str | None = None, timeout: float = 2.0) -> None:
         if not _AFPACKET_AVAILABLE:
             raise RuntimeError(
                 "AFPacketCapture requires Linux with AF_PACKET kernel support.\n"
                 "On Windows use LiveCapture (Scapy + Npcap) instead."
             )
-        self.iface = iface
+        self.iface = _pick_linux_interface(iface)
         self.timeout = timeout
 
     # ── Public API (same shape as LiveCapture) ──────────────────────
@@ -253,6 +343,7 @@ class AFPacketCapture:
 def get_live_capturer(
     iface: str | None = None,
     timeout: float | int | None = 2.0,
+    target_host: str | None = None,
 ) -> AFPacketCapture | LiveCapture:
     """Return the best available capture backend for the current OS.
 
@@ -262,7 +353,8 @@ def get_live_capturer(
     Raises ``RuntimeError`` if neither backend is available.
     """
     if _AFPACKET_AVAILABLE:
-        return AFPacketCapture(iface=iface or "eth0", timeout=float(timeout or 2.0))
+        resolved = _pick_linux_interface(iface=iface, target_host=target_host)
+        return AFPacketCapture(iface=resolved, timeout=float(timeout or 2.0))
     if _SCAPY_AVAILABLE:
         return LiveCapture(iface=iface, timeout=int(timeout) if timeout else 15)
     raise RuntimeError(

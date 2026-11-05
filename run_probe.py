@@ -3,18 +3,14 @@ Mini-Shark — Probe Runner (E1 + E2 + Telemetry Sender)
 =======================================================
 Run this on EACH probe machine AFTER the central server is started.
 
-    Probe 1 (Client VM  192.168.10.11):
-        sudo python run_probe.py --probe-id 1 --server 192.168.10.1:9000 --iface ens33
+    Probe 1 (Client VM  192.168.10.11 / 192.168.130.128):
+        sudo python run_probe.py --probe-id 1 --server 192.168.130.129:9000
 
-    Probe 2 (Server VM  192.168.20.20):
-        sudo python run_probe.py --probe-id 2 --server 192.168.10.1:9000 --iface ens33
+    Probe 2 (Server VM  192.168.20.20 / 192.168.130.129):
+        sudo python run_probe.py --probe-id 2 --server 127.0.0.1:9000
 
     Windows dev machine (single-host test):
         python run_probe.py --probe-id 1 --server 127.0.0.1:9000
-
-    With BPF / interface filter:
-        sudo python run_probe.py --probe-id 1 --server 192.168.10.1:9000 \\
-            --iface ens33 --filter "tcp or port 53"
 
 Capture backend selection (automatic):
     Linux   → AF_PACKET raw socket (zero extra deps, requires sudo/CAP_NET_RAW)
@@ -34,7 +30,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from backend.e1_capture.live import get_live_capturer, _pick_interface
+from backend.e1_capture.live import get_live_capturer, _pick_interface, _pick_linux_interface
 from backend.e2_dissection.engine import ProtocolDissector
 from backend.probe.client import TelemetryClient
 from backend.models import Packet
@@ -76,11 +72,14 @@ def run_probe(
 
     dissector = ProtocolDissector()
 
-    # Resolve interface name (Windows scapy GUID lookup; on Linux pass-through)
+    # Resolve interface name (Windows scapy GUID lookup; on Linux intelligent auto-detection)
     if platform.system() == "Windows":
         iface_name = _pick_interface(iface)
     else:
-        iface_name = iface or "eth0"
+        iface_name = _pick_linux_interface(iface, target_host=host)
+
+    if iface and iface != iface_name:
+        print(f"  [Probe {probe_id}] Notice: interface '{iface}' unavailable; using '{iface_name}'")
 
     print(f"\n{SEP2}")
     print(f"  Mini-Shark  ·  Probe {probe_id}")
@@ -97,7 +96,7 @@ def run_probe(
     client.connect()
 
     # ── Build capture backend ──────────────────────────────────────
-    capturer = get_live_capturer(iface=iface_name, timeout=2.0)
+    capturer = get_live_capturer(iface=iface_name, timeout=2.0, target_host=host)
 
     print(f"\n  [Probe {probe_id}] Backend    : {type(capturer).__name__}")
     print(f"  [Probe {probe_id}] Starting continuous live capture...")
@@ -105,21 +104,24 @@ def run_probe(
     print(f"  {'#':<8} {'Layers':<38} {'Fingerprint':<20} {'Info'}")
     print(f"  {'-'*8} {'-'*38} {'-'*20} {'-'*30}")
 
-    seq      = 0
-    sent     = 0
-    skipped  = 0
+    seq       = 0
+    sent      = 0
+    skipped   = 0
     fragments = 0
-    last_hb  = time.time()
+    last_sent = time.time()
 
     try:
         while True:
-            # ── Heartbeat (before capture burst so idle probes stay alive) ──
-            if time.time() - last_hb >= _HEARTBEAT_INTERVAL_S:
+            # ── Heartbeat (if no telemetry records transmitted in _HEARTBEAT_INTERVAL_S) ──
+            now = time.time()
+            if now - last_sent >= _HEARTBEAT_INTERVAL_S:
                 ok = client.send_heartbeat(seq=seq)
-                if not ok:
+                if ok:
+                    last_sent = now
+                else:
                     print(f"\n  [Probe {probe_id}] Lost connection (heartbeat). Reconnecting...")
                     client.reconnect()
-                last_hb = time.time()
+                    last_sent = time.time()
 
             # ── Capture a 2-second burst ────────────────────────────
             try:
@@ -179,6 +181,7 @@ def run_probe(
                     client.reconnect()
                     client.send(wire)   # retry once after reconnect
 
+                last_sent = time.time()
                 sent += 1
                 seq  += 1
 
@@ -208,10 +211,6 @@ def run_probe(
                         f"  {sent:<8} {layers[:38]:<38} "
                         f"{fp_short:<20} {info}"
                     )
-
-            # Reset heartbeat timer after any burst that produced packets
-            if raw_pkts:
-                last_hb = time.time()
 
     except KeyboardInterrupt:
         print(f"\n{SEP}")
@@ -254,7 +253,7 @@ def main() -> None:
     parser.add_argument(
         "--iface", type=str, default=None,
         help="Network interface (Linux: eth0/ens33; Windows: Wi-Fi/Ethernet). "
-             "Default: eth0 on Linux, auto-detect Wi-Fi on Windows.",
+             "Default: auto-detects active route interface on Linux, Wi-Fi on Windows.",
     )
     parser.add_argument(
         "--filter", type=str, default="",
