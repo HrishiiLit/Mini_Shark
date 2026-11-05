@@ -101,6 +101,8 @@ def get_hub() -> CorrelationHub:
                         "match_state": rec.match_state,
                         "fingerprint": f"0x{rec.fingerprint:016X}",
                         "delay_ms":    delay_ms,
+                        "t1_ns":       rec.t1_ns,
+                        "t2_ns":       rec.t2_ns,
                         "probe1_seq":  rec.probe1_seq,
                         "probe2_seq":  rec.probe2_seq,
                         "flags":       rec.flags,
