@@ -96,7 +96,7 @@ def run_probe(
     client.connect()
 
     # ── Build capture backend ──────────────────────────────────────
-    capturer = get_live_capturer(iface=iface_name, timeout=2.0, target_host=host)
+    capturer = get_live_capturer(iface=iface_name, timeout=1.0, target_host=host)
 
     print(f"\n  [Probe {probe_id}] Backend    : {type(capturer).__name__}")
     print(f"  [Probe {probe_id}] Starting continuous live capture...")

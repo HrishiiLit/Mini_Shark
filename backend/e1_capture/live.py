@@ -314,12 +314,17 @@ class AFPacketCapture:
             sock.bind((self.iface, 0))
             _set_promisc(sock, self.iface)
             index = 0
+            burst_timeout = float(self.timeout) if self.timeout else 1.0
+            deadline = time.time() + burst_timeout
             while index < count:
-                ready, _, _ = select.select([sock], [], [], self.timeout)
-                if not ready:
-                    # Timeout slice elapsed — keep looping so caller can
-                    # check Ctrl-C in the outer while True loop of run_probe.py
+                time_left = deadline - time.time()
+                if time_left <= 0:
                     break
+                ready, _, _ = select.select([sock], [], [], min(max(time_left, 0.0), 0.2))
+                if not ready:
+                    if time.time() >= deadline:
+                        break
+                    continue
                 try:
                     raw, _ = sock.recvfrom(65_535)
                 except OSError:
