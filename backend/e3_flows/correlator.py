@@ -92,8 +92,9 @@ class CorrelationHub:
         self._probe1_id   = probe1_id
         self._probe2_id   = probe2_id
 
-        # hash table: fingerprint → _InFlight (only Probe-1 side stored)
-        self._table: dict[int, _InFlight] = {}
+        # hash tables: fingerprint → _InFlight
+        self._table: dict[int, _InFlight] = {}      # Probe 1 waiting for Probe 2
+        self._table_p2: dict[int, _InFlight] = {}   # Probe 2 waiting for Probe 1
 
         # min-heap: (deadline_ns, fingerprint)
         self._heap: list[tuple[int, int]] = []
@@ -128,6 +129,24 @@ class CorrelationHub:
         now  = time.time_ns()
 
         if pid == self._probe1_id:
+            # ── Check if Probe 2 already arrived earlier ─────────────────
+            entry2 = self._table_p2.get(fp)
+            if entry2 is not None and entry2.alive:
+                entry2.alive = False
+                del self._table_p2[fp]
+                flags = self._dt_flags(ts, entry2.timestamp_ns)
+                rec = self._make_record(
+                    fp=fp,
+                    p1_ts=ts, p2_ts=entry2.timestamp_ns,
+                    p1_seq=telemetry.seq, p2_seq=entry2.seq,
+                    match_state="matched",
+                    deadline_ns=entry2.deadline_ns,
+                    flags=flags,
+                )
+                self.stats["matched"] += 1
+                self._emit(rec)
+                return rec
+
             # ── First observation: store in table + heap ─────────────────
             if fp in self._table:
                 # Already have a Probe-1 entry; could be a retransmission.
@@ -153,23 +172,27 @@ class CorrelationHub:
             return None
 
         elif pid == self._probe2_id:
-            # ── Second observation: try to match ─────────────────────────
+            # ── Check if Probe 1 is waiting ──────────────────────────────
             entry = self._table.get(fp)
-            if entry is None:
-                # Probe-2 only (no matching Probe-1 record)
+            if entry is not None and entry.alive:
+                # Normal match — remove from table
+                entry.alive = False
+                del self._table[fp]
+
+                flags = self._dt_flags(entry.timestamp_ns, ts)
                 rec = self._make_record(
                     fp=fp,
-                    p1_ts=None, p2_ts=ts,
-                    p1_seq=None, p2_seq=telemetry.seq,
-                    match_state="probe2_only",
-                    deadline_ns=now + self._timeout_ns,
-                    flags=0,
+                    p1_ts=entry.timestamp_ns, p2_ts=ts,
+                    p1_seq=entry.seq, p2_seq=telemetry.seq,
+                    match_state="matched",
+                    deadline_ns=entry.deadline_ns,
+                    flags=flags,
                 )
-                self.stats["probe2_only"] += 1
+                self.stats["matched"] += 1
                 self._emit(rec)
                 return rec
 
-            if not entry.alive:
+            if entry is not None and not entry.alive:
                 # Already emitted as unmatched; late arrival
                 rec = self._make_record(
                     fp=fp,
@@ -183,22 +206,23 @@ class CorrelationHub:
                 self._emit(rec)
                 return rec
 
-            # Normal match — remove from table
-            entry.alive = False
-            del self._table[fp]
+            # Probe 2 arrived first: buffer in _table_p2 for up to _timeout_ns
+            if fp in self._table_p2:
+                self.stats["duplicate_t2"] += 1
+                return None
 
-            flags = self._dt_flags(entry.timestamp_ns, ts)
-            rec = self._make_record(
-                fp=fp,
-                p1_ts=entry.timestamp_ns, p2_ts=ts,
-                p1_seq=entry.seq, p2_seq=telemetry.seq,
-                match_state="matched",
-                deadline_ns=entry.deadline_ns,
-                flags=flags,
+            deadline = ts + self._timeout_ns
+            entry2 = _InFlight(
+                fingerprint=fp,
+                probe_id=pid,
+                timestamp_ns=ts,
+                seq=telemetry.seq,
+                deadline_ns=deadline,
+                captured_len=telemetry.captured_len,
             )
-            self.stats["matched"] += 1
-            self._emit(rec)
-            return rec
+            self._table_p2[fp] = entry2
+            heapq.heappush(self._heap, (deadline, fp))
+            return None
 
         else:
             logger.warning("Unknown probe_id %d — ignored", pid)
@@ -351,11 +375,15 @@ class CorrelationHub:
         deletion); over time this causes the heap to grow to O(all-time
         matched count).  Compaction brings it back to O(in-flight count).
         """
-        live_count = sum(1 for e in self._table.values() if e.alive)
+        live_count = sum(1 for e in self._table.values() if e.alive) + sum(1 for e in self._table_p2.values() if e.alive)
         if len(self._heap) > 2 * (live_count + 1):
             self._heap = [
                 (e.deadline_ns, fp)
                 for fp, e in self._table.items()
+                if e.alive
+            ] + [
+                (e.deadline_ns, fp)
+                for fp, e in self._table_p2.items()
                 if e.alive
             ]
             heapq.heapify(self._heap)
@@ -396,22 +424,43 @@ class CorrelationHub:
             if not force_all and deadline > now:
                 break
             heapq.heappop(self._heap)
+
+            # Check Probe 1 in-flight
             entry = self._table.get(fp)
-            if entry is None or not entry.alive:
-                continue   # already matched or already expired
-            entry.alive = False
-            del self._table[fp]
-            rec = self._make_record(
-                fp=fp,
-                p1_ts=entry.timestamp_ns, p2_ts=None,
-                p1_seq=entry.seq, p2_seq=None,
-                match_state="unmatched",
-                deadline_ns=entry.deadline_ns,
-                flags=0,
-            )
-            self.stats["unmatched"] += 1
-            self._emit(rec)
-            emitted.append(rec)
+            if entry is not None and entry.alive:
+                entry.alive = False
+                del self._table[fp]
+                rec = self._make_record(
+                    fp=fp,
+                    p1_ts=entry.timestamp_ns, p2_ts=None,
+                    p1_seq=entry.seq, p2_seq=None,
+                    match_state="unmatched",
+                    deadline_ns=entry.deadline_ns,
+                    flags=0,
+                )
+                self.stats["unmatched"] += 1
+                self._emit(rec)
+                emitted.append(rec)
+                continue
+
+            # Check Probe 2 in-flight (arrived before Probe 1 but never matched)
+            entry2 = self._table_p2.get(fp)
+            if entry2 is not None and entry2.alive:
+                entry2.alive = False
+                del self._table_p2[fp]
+                rec = self._make_record(
+                    fp=fp,
+                    p1_ts=None, p2_ts=entry2.timestamp_ns,
+                    p1_seq=None, p2_seq=entry2.seq,
+                    match_state="probe2_only",
+                    deadline_ns=entry2.deadline_ns,
+                    flags=0,
+                )
+                self.stats["probe2_only"] += 1
+                self._emit(rec)
+                emitted.append(rec)
+                continue
+
         return emitted
 
     @staticmethod
