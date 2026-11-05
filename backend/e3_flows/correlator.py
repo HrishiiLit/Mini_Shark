@@ -101,8 +101,8 @@ class CorrelationHub:
         # public records list (used when no callback given)
         self.records: list[CorrelationRecord] = []
 
-        # connected probe tracking: probe_id → {"ip": str, "records": int}
-        self.connected_probes: dict[int, dict] = {}
+        # connected probe tracking: probe_id → dict
+        self.connected_probes: dict[int, dict[str, Any]] = {}
 
         # stats
         self.stats: dict[str, int] = {
@@ -112,7 +112,6 @@ class CorrelationHub:
             "duplicate_t2": 0,
             "probe2_only": 0,
         }
-        self.connected_probes: dict[Any, dict[str, Any]] = {}
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -240,24 +239,21 @@ class CorrelationHub:
     ) -> None:
         peer = writer.get_extra_info("peername")
         peer_ip = peer[0] if peer else "unknown"
+        peer_port = peer[1] if peer else 0
         probe_id = None
+        now = time.time()
         logger.info("Probe connected from %s", peer)
-        self.connected_probes[peer] = {
-            "peer": peer,
-            "ip": str(peer[0]) if peer else "unknown",
-            "port": peer[1] if peer else 0,
-            "connected_at": time.time(),
-            "last_seen": time.time(),
-            "probe_id": None,
-            "records": 0,
-        }
         try:
             probe_id = await self._read_preamble(reader, peer)
-            # Register probe as connected
+            # Register probe as connected keyed strictly by probe_id
             self.connected_probes[probe_id] = {
-                "ip": peer_ip,
-                "records": 0,
+                "peer": peer,
+                "ip": str(peer_ip),
+                "port": peer_port,
+                "connected_at": now,
+                "last_seen": now,
                 "probe_id": probe_id,
+                "records": 0,
             }
             logger.info("Probe %d registered from %s", probe_id, peer_ip)
             await self._read_records(reader, peer, probe_id)
@@ -306,37 +302,42 @@ class CorrelationHub:
             except ValueError as exc:
                 logger.warning("Malformed record from %s: %s", peer, exc)
                 continue
-            if peer in self.connected_probes:
-                self.connected_probes[peer]["probe_id"] = telemetry.probe_id
-                self.connected_probes[peer]["last_seen"] = time.time()
-                self.connected_probes[peer]["records"] += 1
-            self.ingest(telemetry)
-            # Track record count per probe
-            if probe_id in self.connected_probes:
-                self.connected_probes[probe_id]["records"] += 1
 
+            pid = telemetry.probe_id or probe_id
+            now = time.time()
+            is_heartbeat = (telemetry.type_flags & 0x0F == 3) or (telemetry.fingerprint == 0)
+            if pid in self.connected_probes:
+                self.connected_probes[pid]["last_seen"] = now
+                if not is_heartbeat:
+                    self.connected_probes[pid]["records"] += 1
+
+            if not is_heartbeat:
+                self.ingest(telemetry)
 
     def probe_status(self) -> dict[str, Any]:
-        """Return connected probes snapshot."""
+        """Return connected probes snapshot in dashboard format."""
         now = time.time()
-        probes = list(self.connected_probes.values())
-        p1 = next((p for p in probes if p["probe_id"] == self._probe1_id), None)
-        p2 = next((p for p in probes if p["probe_id"] == self._probe2_id), None)
+        p1 = self.connected_probes.get(self._probe1_id)
+        p2 = self.connected_probes.get(self._probe2_id)
+
+        p1_online = p1 is not None and (now - p1.get("last_seen", 0)) < 15.0
+        p2_online = p2 is not None and (now - p2.get("last_seen", 0)) < 15.0
+
         active_list = [
             {
                 "ip": p["ip"],
                 "probe_id": p["probe_id"],
-                "records": p["records"],
-                "connected_at": p["connected_at"],
+                "records": p.get("records", 0),
+                "connected_at": p.get("connected_at", now),
             }
-            for p in probes
-            if (now - p["last_seen"]) < 10.0
+            for p in self.connected_probes.values()
+            if (now - p.get("last_seen", 0)) < 15.0
         ]
         return {
-            "probe1_connected": p1 is not None and (now - p1["last_seen"]) < 10.0,
-            "probe1_ip": p1["ip"] if p1 else None,
-            "probe2_connected": p2 is not None and (now - p2["last_seen"]) < 10.0,
-            "probe2_ip": p2["ip"] if p2 else None,
+            "probe1_connected": p1_online,
+            "probe1_ip": p1["ip"] if (p1_online and p1) else None,
+            "probe2_connected": p2_online,
+            "probe2_ip": p2["ip"] if (p2_online and p2) else None,
             "active_clients": active_list,
             "total_connected": len(active_list),
         }

@@ -177,13 +177,18 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
               const status: Packet['status'] =
                 msg.dns_exfil_suspect ? 'dropped' : 'matched'
 
+              const rawIpId = Number(msg.ip_id) || 0
+              const ipId = rawIpId > 0 ? rawIpId : randInt(0x1000, 0xffee)
+              const tcpSeq = msg.tcp_seq != null ? Number(msg.tcp_seq) : undefined
+
               const packet = buildPacket({
                 id: state.seq,
                 timeUs: Math.round((msg.timestamp ?? Date.now() / 1000) * 1_000_000),
                 protocol: (msg.protocol || 'TCP') as any,
                 srcPort: Number(msg.src_port) || 0,
                 dstPort: Number(msg.dst_port) || 0,
-                ipId: 0,
+                ipId,
+                tcpSeq,
                 ttl: 64,
                 payload: [],
                 status,
@@ -191,6 +196,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
                 note: msg.dns_exfil_suspect ? `DNS H=${msg.dns_entropy}` : undefined,
                 srcIp: msg.src_ip || '',
                 dstIp: msg.dst_ip || '',
+                hash64: msg.fingerprint || undefined,
               })
 
               useCaptureStore.setState((s) => ({
@@ -353,9 +359,14 @@ if (typeof window !== 'undefined') {
 
   function fetchProbesStatus() {
     fetch(`${API}/probes`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
       .then((data: ProbesStatus) => {
-        useCaptureStore.getState().setProbesStatus(data)
+        if (data && typeof data.total_connected === 'number') {
+          useCaptureStore.getState().setProbesStatus(data)
+        }
       })
       .catch(() => {})
   }
@@ -400,13 +411,23 @@ if (typeof window !== 'undefined') {
             const now = performance.now()
             const deltaTms = msg.delay_ms != null ? Number(msg.delay_ms) : undefined
 
+            const ipId =
+              msg.probe1_seq != null
+                ? (((msg.probe1_seq * 137) & 0xffff) || randInt(0x1000, 0xffee))
+                : randInt(0x1000, 0xffee)
+            const tcpSeq =
+              msg.probe1_seq != null
+                ? 100000 + msg.probe1_seq * 1460
+                : undefined
+
             const packet = buildPacket({
               id,
               timeUs: msg.t1_ns ? Math.round(msg.t1_ns / 1000) : 1_704_000_000_000_000 + id * 97_331,
               protocol: (msg.proto || 'TCP').toUpperCase() as any,
               srcPort: msg.src_port || 54210,
               dstPort: msg.dst_port || 80,
-              ipId: randInt(0x1000, 0xffee),
+              ipId,
+              tcpSeq,
               ttl: 63,
               payload: httpPayload(),
               status,
@@ -418,6 +439,7 @@ if (typeof window !== 'undefined') {
                   : undefined,
               srcIp,
               clientId: clientIdx,
+              hash64: msg.fingerprint || undefined,
             })
 
             const duration = kind === 'drop' ? 1.15 : kind === 'slow' ? 2.6 : 0.85

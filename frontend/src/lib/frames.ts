@@ -66,6 +66,7 @@ export interface FrameSpec {
   srcIp?: string
   dstIp?: string
   clientId?: number
+  hash64?: string
 }
 
 export function buildPacket(spec: FrameSpec): Packet {
@@ -160,13 +161,15 @@ export function buildPacket(spec: FrameSpec): Packet {
   for (let i = 0; i < payload.length; i++) bytes[l4 + i] = payload[i]
   mark(l4, payload.length, spec.protocol === 'DNS' ? 'payload' : 'payload')
 
-  const hash64 = hashInvariant(
-    spec.ipId,
-    CLIENT_IP,
-    SERVER_IP,
-    protoNum,
-    spec.tcpSeq ?? spec.srcPort * 1000 + spec.dstPort,
-  )
+  const hash64 =
+    spec.hash64 ||
+    hashInvariant(
+      spec.ipId,
+      CLIENT_IP,
+      SERVER_IP,
+      protoNum,
+      spec.tcpSeq ?? spec.srcPort * 1000 + spec.dstPort,
+    )
 
   const layers: ProtocolLayer[] = [
     {
@@ -283,7 +286,12 @@ export function buildPacket(spec: FrameSpec): Packet {
     dstPort: spec.dstPort,
     protocol: spec.protocol,
     length: total,
-    ipId: `0x${spec.ipId.toString(16).toUpperCase().padStart(4, '0')}`,
+    ipId:
+      spec.ipId > 0
+        ? `0x${spec.ipId.toString(16).toUpperCase().padStart(4, '0')}`
+        : spec.tcpSeq != null
+          ? `0x${(((spec.tcpSeq >>> 4) ^ 0x3f) & 0xffff).toString(16).toUpperCase().padStart(4, '0')}`
+          : '0x0001',
     tcpSeq: spec.tcpSeq,
     layers,
     bytes,

@@ -26,22 +26,69 @@ from backend.e3_flows.correlator import CorrelationHub
 from backend.e4_query import FILTER_FIELDS, QueryEngine
 
 
-def _get_probes_status(hub: "CorrelationHub") -> dict:
+def _get_probes_status(hub: Any) -> dict[str, Any]:
     """Build the ProbesStatus object the frontend expects."""
-    connected = getattr(hub, 'connected_probes', {})
-    p1 = connected.get(1)
-    p2 = connected.get(2)
-    clients = [
-        {"ip": v["ip"], "probe_id": k, "records": v["records"]}
-        for k, v in connected.items()
-    ]
+    if hasattr(hub, "probe_status"):
+        try:
+            return hub.probe_status()
+        except Exception:
+            pass
+    if hasattr(hub, "get_status"):
+        try:
+            s = hub.get_status()
+            probes = s.get("probes", [])
+            p1 = next((p for p in probes if p.get("probe_id") == 1 and p.get("status") == "online"), None)
+            p2 = next((p for p in probes if p.get("probe_id") == 2 and p.get("status") == "online"), None)
+            active_list = [
+                {
+                    "ip": p.get("ip", "unknown"),
+                    "probe_id": p.get("probe_id"),
+                    "records": p.get("packets_sent", 0),
+                    "connected_at": time.time(),
+                }
+                for p in probes
+                if p.get("status") == "online"
+            ]
+            return {
+                "probe1_connected": p1 is not None,
+                "probe1_ip": p1.get("ip") if p1 else None,
+                "probe2_connected": p2 is not None,
+                "probe2_ip": p2.get("ip") if p2 else None,
+                "active_clients": active_list,
+                "total_connected": len(active_list),
+            }
+        except Exception:
+            pass
+
+    connected = getattr(hub, "connected_probes", {})
+    if isinstance(connected, dict):
+        p1 = connected.get(1)
+        p2 = connected.get(2)
+        clients = []
+        for k, v in connected.items():
+            if isinstance(k, int) and isinstance(v, dict):
+                clients.append({
+                    "ip": v.get("ip", "unknown"),
+                    "probe_id": k,
+                    "records": v.get("records", 0),
+                    "connected_at": v.get("connected_at", time.time()),
+                })
+        return {
+            "probe1_connected": p1 is not None,
+            "probe1_ip": p1.get("ip") if isinstance(p1, dict) else None,
+            "probe2_connected": p2 is not None,
+            "probe2_ip": p2.get("ip") if isinstance(p2, dict) else None,
+            "active_clients": clients,
+            "total_connected": len(clients),
+        }
+
     return {
-        "probe1_connected": p1 is not None,
-        "probe1_ip":        p1["ip"] if p1 else None,
-        "probe2_connected": p2 is not None,
-        "probe2_ip":        p2["ip"] if p2 else None,
-        "active_clients":   clients,
-        "total_connected":  len(connected),
+        "probe1_connected": False,
+        "probe1_ip": None,
+        "probe2_connected": False,
+        "probe2_ip": None,
+        "active_clients": [],
+        "total_connected": 0,
     }
 
 
@@ -248,7 +295,6 @@ async def websocket_live(ws: WebSocket) -> None:
         while True:
             # Push a metrics snapshot every second
             stats = get_engine().correlation_stats()
-            probes = get_hub().probe_status()
             recent_alerts = get_engine().alerts(limit=5)
             probes = _get_probes_status(get_hub())
             await ws.send_text(json.dumps({
@@ -272,7 +318,7 @@ async def websocket_live(ws: WebSocket) -> None:
 @router.get("/probes")
 def get_connected_probes() -> dict[str, Any]:
     """Return real-time status of connected edge probes."""
-    return get_hub().probe_status()
+    return _get_probes_status(get_hub())
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Offline PCAP capture routes
@@ -607,13 +653,18 @@ async def stream_live(
                     decoded = dissector.dissect_one(pkt)
 
                     src_ip = dst_ip = src_port = dst_port = protocol = info = ""
+                    ip_id = 0
+                    tcp_seq = None
                     for layer in decoded.layers:
                         f = layer.fields
                         if layer.name in ("IPv4","IPv6") and not src_ip:
                             src_ip, dst_ip, protocol = str(f.get("src","")), str(f.get("dst","")), layer.name
+                        if layer.name == "IPv4":
+                            ip_id = f.get("id", 0)
                         if layer.name == "TCP" and not src_port:
                             src_port, dst_port, protocol = str(f.get("src_port","")), str(f.get("dst_port","")), "TCP"
-                            info = f"Seq={f.get('seq','')} [{_tcp_flags(f.get('flags',0))}]"
+                            tcp_seq = f.get("seq")
+                            info = f"Seq={tcp_seq} [{_tcp_flags(f.get('flags',0))}]"
                         if layer.name == "UDP" and not src_port:
                             src_port, dst_port, protocol = str(f.get("src_port","")), str(f.get("dst_port","")), "UDP"
                         if layer.name == "DNS":
@@ -626,9 +677,19 @@ async def stream_live(
                         if layer.name == "ICMP":
                             protocol = "ICMP"
                             info = f"Type={f.get('type','')} Code={f.get('code','')}"
+                            ip_id = f.get("id", ip_id)
                         if layer.name == "ARP":
                             protocol = "ARP"
                             info = f"Who has {f.get('dst_ip','')}? Tell {f.get('src_ip','')}"
+
+                    # Filter out telemetry (9000), API (8001), and Vite (5173) ports
+                    try:
+                        sp_int = int(src_port) if src_port else 0
+                        dp_int = int(dst_port) if dst_port else 0
+                        if sp_int in (9000, 8001, 5173) or dp_int in (9000, 8001, 5173):
+                            continue
+                    except ValueError:
+                        pass
 
                     event = {
                         "type":      "packet",
@@ -641,6 +702,8 @@ async def stream_live(
                         "dst_port":  dst_port,
                         "protocol":  protocol,
                         "info":      info,
+                        "ip_id":     ip_id,
+                        "tcp_seq":   tcp_seq,
                         "layer_names": [l.name for l in decoded.layers],
                         "layers":    [_layer_dict(l) for l in decoded.layers],
                         "fingerprint": f"0x{decoded.fingerprint.value:016X}" if decoded.fingerprint else None,

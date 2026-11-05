@@ -135,6 +135,18 @@ def run_probe(
 
                 decoded = dissector.dissect_one(pkt)
 
+                # Skip probe telemetry and web traffic to avoid sniffer feedback loop
+                is_internal = False
+                for layer in decoded.layers:
+                    if layer.name in ("TCP", "UDP"):
+                        sp_p = layer.fields.get("src_port")
+                        dp_p = layer.fields.get("dst_port")
+                        if sp_p in (port, 8001, 5173) or dp_p in (port, 8001, 5173):
+                            is_internal = True
+                            break
+                if is_internal:
+                    continue
+
                 # Detect IP fragments (no fingerprint possible)
                 is_frag = any(
                     layer.fields.get("fragment")

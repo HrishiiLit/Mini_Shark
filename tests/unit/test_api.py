@@ -23,9 +23,38 @@ def test_engine_routes_are_registered():
         "/captures/{capture_id}/statistics",
         "/query",
         "/query/fields",
+        "/probes",
     }
 
     assert expected <= paths
+
+
+def test_probe_status_endpoint_returns_expected_structure():
+    from backend.api.routes import get_connected_probes, get_hub, _get_probes_status
+    status = get_connected_probes()
+    assert isinstance(status, dict)
+    assert "probe1_connected" in status
+    assert "probe2_connected" in status
+    assert "active_clients" in status
+    assert "total_connected" in status
+
+    # Verify connected probe reflection
+    hub = get_hub()
+    import time
+    hub.connected_probes[1] = {
+        "probe_id": 1,
+        "ip": "192.168.130.128",
+        "port": 42508,
+        "connected_at": time.time(),
+        "last_seen": time.time(),
+        "records": 10,
+    }
+    res = _get_probes_status(hub)
+    assert res["probe1_connected"] is True
+    assert res["probe1_ip"] == "192.168.130.128"
+    assert res["total_connected"] == 1
+    # Cleanup
+    hub.connected_probes.clear()
 
 
 def test_app_metadata():

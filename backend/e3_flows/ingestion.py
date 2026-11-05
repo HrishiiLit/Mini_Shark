@@ -335,6 +335,32 @@ class TelemetryServer:
             ],
         }
 
+    def probe_status(self) -> dict[str, Any]:
+        """Return probe status in dashboard-compatible format."""
+        self._check_probe_liveness()
+        p1 = self._connected_probes.get(self.engine.probe1_id)
+        p2 = self._connected_probes.get(self.engine.probe2_id)
+        p1_online = p1 is not None and p1.status == "online"
+        p2_online = p2 is not None and p2.status == "online"
+        active_list = [
+            {
+                "ip": p.remote_addr,
+                "probe_id": p.probe_id,
+                "records": p.packets_received,
+                "connected_at": p.connected_at_ns / 1_000_000_000.0,
+            }
+            for p in self._connected_probes.values()
+            if p.status == "online"
+        ]
+        return {
+            "probe1_connected": p1_online,
+            "probe1_ip": p1.remote_addr if p1_online and p1 else None,
+            "probe2_connected": p2_online,
+            "probe2_ip": p2.remote_addr if p2_online and p2 else None,
+            "active_clients": active_list,
+            "total_connected": len(active_list),
+        }
+
 
 class TelemetryClient:
     """Client utility to stream telemetry records to the central server."""

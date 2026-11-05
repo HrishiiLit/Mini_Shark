@@ -100,6 +100,17 @@ class CorrelationEngine:
         if callback not in self._subscribers:
             self._subscribers.append(callback)
 
+    def probe_status(self) -> dict[str, Any]:
+        """Compatibility probe status for CorrelationEngine."""
+        return {
+            "probe1_connected": False,
+            "probe1_ip": None,
+            "probe2_connected": False,
+            "probe2_ip": None,
+            "active_clients": [],
+            "total_connected": 0,
+        }
+
     def unsubscribe(self, callback: Callable[[CorrelationRecord], None]) -> None:
         if callback in self._subscribers:
             self._subscribers.remove(callback)

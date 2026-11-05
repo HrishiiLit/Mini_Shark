@@ -124,25 +124,6 @@ async def probe_status() -> dict:
     return _get_probes_status(hub)
 
 
-def _get_probes_status(hub) -> dict:
-    """Build the ProbesStatus object the frontend expects."""
-    connected = hub.connected_probes  # dict: probe_id -> {ip, records}
-    p1 = connected.get(1) or connected.get(hub._probe1_id)
-    p2 = connected.get(2) or connected.get(hub._probe2_id)
-    clients = [
-        {"ip": v["ip"], "probe_id": k, "records": v["records"]}
-        for k, v in connected.items()
-    ]
-    return {
-        "probe1_connected": p1 is not None,
-        "probe1_ip":        p1["ip"] if p1 else None,
-        "probe2_connected": p2 is not None,
-        "probe2_ip":        p2["ip"] if p2 else None,
-        "active_clients":   clients,
-        "total_connected":  len(connected),
-    }
-
-
 @app.get("/status")
 async def system_status() -> dict:
     """Full system status — which probes are connected, DB stats, etc."""
