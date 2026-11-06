@@ -7,11 +7,11 @@ export const SERVER_POS = new THREE.Vector3(4.6, 0.35, 0)
 export const DEFAULT_CLIENTS: ClientNodeInfo[] = [
   {
     id: 0,
-    name: 'VM2 (Client 1)',
+    name: 'VM2 (Ubuntu Client)',
     ip: '192.168.130.128',
     probeBadge: 'Probe 1 · Ingress',
     os: 'Ubuntu 22.04 LTS',
-    vm: 'VM2 (Ubuntu)',
+    vm: 'VM2 Guest VM',
   },
   {
     id: 1,

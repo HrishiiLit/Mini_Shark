@@ -79,7 +79,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   frozenFlightId: null,
   running: false,
   demoMode: false,
-  clientCount: 2,
+  clientCount: 1,
   clients: DEFAULT_CLIENTS,
   probesStatus: {
     probe1_connected: false,
@@ -140,8 +140,8 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
         return c
       })
 
-      // If multiple client probes are online, auto-expand clientCount so both are displayed
-      const newClientCount = detectedClients >= 2 ? Math.max(s.clientCount, detectedClients) : s.clientCount
+      // In live network mode: reflect the actual number of connected client probes
+      const newClientCount = !s.demoMode && detectedClients > 0 ? detectedClients : s.clientCount
 
       return {
         probesStatus: status,
