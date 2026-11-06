@@ -19,7 +19,6 @@
     "zustand": "^5.0.16"
   },
   "devDependencies": {
-    "@rolldown/binding-linux-x64-gnu": "^1.2.16",
     "@tailwindcss/vite": "^4.3.4",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
@@ -30,5 +29,8 @@
     "tailwindcss": "^4.3.4",
     "typescript": "~7.0.2",
     "vite": "^8.3.5"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-linux-x64-gnu": "^1.2.16"
   }
 }
