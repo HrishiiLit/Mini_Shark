@@ -33,6 +33,14 @@ _RECORD_SIZE = 24
 _PREAMBLE_VERSION = 1
 _MAX_IN_FLIGHT = 50_000
 
+_PROTO_MAP: dict[int, str] = {
+    1: "TCP",
+    2: "UDP",
+    3: "ICMP",
+    4: "DNS",
+    5: "HTTP",
+}
+
 
 @dataclass
 class _InFlight:
@@ -44,6 +52,7 @@ class _InFlight:
     seq: int
     deadline_ns: int
     captured_len: int
+    proto_code: int = 1
     alive: bool = True
 
 
@@ -87,6 +96,9 @@ class CorrelationHub:
         fp = telemetry.fingerprint
         ts = telemetry.timestamp_ns
         pid = telemetry.probe_id
+        proto_code = telemetry.type_flags & 0x0F
+        if proto_code == 0:
+            proto_code = 1
         now = time.time_ns()
 
         if pid == self._probe2_id:
@@ -97,6 +109,7 @@ class CorrelationHub:
                 del self._table[fp]
 
                 flags = self._dt_flags(entry.timestamp_ns, ts)
+                p_code = entry.proto_code if entry.proto_code != 1 else proto_code
                 rec = self._make_record(
                     fp=fp,
                     p1_ts=entry.timestamp_ns,
@@ -107,6 +120,7 @@ class CorrelationHub:
                     deadline_ns=entry.deadline_ns,
                     flags=flags,
                     client_probe_id=entry.probe_id,
+                    proto_code=p_code,
                 )
                 self.stats["matched"] += 1
                 self._emit(rec)
@@ -125,6 +139,7 @@ class CorrelationHub:
                 seq=telemetry.seq,
                 deadline_ns=deadline,
                 captured_len=telemetry.captured_len,
+                proto_code=proto_code,
             )
             self._table_p2[fp] = entry2
             heapq.heappush(self._heap, (deadline, fp))
@@ -138,6 +153,7 @@ class CorrelationHub:
                 entry2.alive = False
                 del self._table_p2[fp]
                 flags = self._dt_flags(ts, entry2.timestamp_ns)
+                p_code = proto_code if proto_code != 1 else entry2.proto_code
                 rec = self._make_record(
                     fp=fp,
                     p1_ts=ts,
@@ -148,6 +164,7 @@ class CorrelationHub:
                     deadline_ns=entry2.deadline_ns,
                     flags=flags,
                     client_probe_id=pid,
+                    proto_code=p_code,
                 )
                 self.stats["matched"] += 1
                 self._emit(rec)
@@ -167,6 +184,7 @@ class CorrelationHub:
                 seq=telemetry.seq,
                 deadline_ns=deadline,
                 captured_len=telemetry.captured_len,
+                proto_code=proto_code,
             )
             self._table[fp] = entry
             heapq.heappush(self._heap, (deadline, fp))
@@ -341,6 +359,7 @@ class CorrelationHub:
                     deadline_ns=entry.deadline_ns,
                     flags=0,
                     client_probe_id=entry.probe_id,
+                    proto_code=entry.proto_code,
                 )
                 self.stats["unmatched"] += 1
                 self._emit(rec)
@@ -371,6 +390,7 @@ class CorrelationHub:
                     deadline_ns=entry.deadline_ns,
                     flags=0,
                     client_probe_id=entry.probe_id,
+                    proto_code=entry.proto_code,
                 )
                 self.stats["unmatched"] += 1
                 self._emit(rec)
@@ -391,6 +411,7 @@ class CorrelationHub:
                     match_state="probe2_only",
                     deadline_ns=entry2.deadline_ns,
                     flags=0,
+                    proto_code=entry2.proto_code,
                 )
                 self.stats["probe2_only"] += 1
                 self._emit(rec)
@@ -419,6 +440,7 @@ class CorrelationHub:
         deadline_ns: int,
         flags: int,
         client_probe_id: int = 1,
+        proto_code: int = 1,
     ) -> CorrelationRecord:
         """Construct a CorrelationRecord with delay and client attribution."""
         delay_ns = None
@@ -427,6 +449,7 @@ class CorrelationHub:
             if delay_ns < 0 or delay_ns > 5_000_000_000:
                 flags |= CLOCK_SKEW_SUSPECT
 
+        proto = _PROTO_MAP.get(proto_code, "TCP")
         rec = CorrelationRecord(
             fingerprint=fp,
             probe1_observed=p1_ts is not None,
@@ -440,6 +463,7 @@ class CorrelationHub:
             flags=flags,
             probe1_seq=p1_seq,
             probe2_seq=p2_seq,
+            proto=proto,
         )
         object.__setattr__(rec, "client_probe_id", client_probe_id)
         return rec

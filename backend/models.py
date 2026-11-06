@@ -248,6 +248,7 @@ class CorrelationRecord:
     flags: int = 0
     probe1_seq: int | None = None
     probe2_seq: int | None = None
+    proto: str = "TCP"
     created_at_ns: int = field(default_factory=time.time_ns)
 
     @property

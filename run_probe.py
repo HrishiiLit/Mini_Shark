@@ -103,14 +103,25 @@ def run_probe(
             for pkt in raw_pkts:
                 decoded = dissector.dissect_one(pkt)
 
-                # Ignore probe telemetry traffic (port 9000), backend API/WS traffic (port 8001), and SSH (port 22)
-                # to prevent positive feedback loops and management traffic flooding
+                # Ignore probe telemetry traffic (port 9000) and SSH (port 22)
+                # For management ports: only filter out polling endpoints (/probes, /ws)
+                # Also ignore link-local multicast/broadcast noise (SSDP, mDNS, IGMP)
                 is_infra = False
                 for layer in decoded.layers:
                     if layer.name in ("TCP", "UDP"):
                         sport = layer.fields.get("src_port")
                         dport = layer.fields.get("dst_port")
-                        if sport in (port, 8001, 22) or dport in (port, 8001, 22):
+                        if sport in (port, 22) or dport in (port, 22):
+                            is_infra = True
+                            break
+                    if layer.name == "IPv4":
+                        dst = str(layer.fields.get("dst_ip", ""))
+                        if dst == "255.255.255.255" or dst.startswith("224.") or dst.startswith("239."):
+                            is_infra = True
+                            break
+                    if layer.name == "HTTP":
+                        path = str(layer.fields.get("path", "") or layer.fields.get("start_line", ""))
+                        if "/probes" in path or "/ws" in path:
                             is_infra = True
                             break
                 if is_infra:

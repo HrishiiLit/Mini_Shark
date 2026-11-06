@@ -106,20 +106,28 @@ def get_hub() -> CorrelationHub:
     global _hub
     if _hub is None:
         _record_count = [0]   # mutable counter inside closure
+        _batch: list[CorrelationRecord] = []
+
+        def _flush_batch() -> None:
+            if not _batch:
+                return
+            to_save = list(_batch)
+            _batch.clear()
+            try:
+                get_engine().store_correlations(to_save)
+            except Exception:
+                pass
 
         def _on_record(rec: CorrelationRecord) -> None:
             _record_count[0] += 1
-
-            # 1. Persist to DB
-            try:
-                get_engine().store_correlation(rec)
-            except Exception:
-                pass
+            _batch.append(rec)
+            if len(_batch) >= 20:
+                _flush_batch()
 
             # 2. Broadcast to all WebSocket clients
             delay_ms = round(rec.delay_ns / 1_000_000, 3) if rec.delay_ns is not None else None
             client_probe_id = getattr(rec, "client_probe_id", 1)
-            client_id = 0 if client_probe_id == 1 else 1
+            client_id = 0 if client_probe_id == 1 else (1 if client_probe_id == 3 else max(0, client_probe_id - 1))
 
             client_ip = None
             if _hub and hasattr(_hub, "connected_probes"):
@@ -127,6 +135,10 @@ def get_hub() -> CorrelationHub:
                     if p.get("probe_id") == client_probe_id:
                         client_ip = p.get("ip")
                         break
+            if not client_ip:
+                client_ip = "192.168.130.128" if client_probe_id == 1 else "10.108.157.186"
+
+            proto = getattr(rec, "proto", "TCP")
 
             try:
                 loop = asyncio.get_event_loop()
@@ -143,32 +155,37 @@ def get_hub() -> CorrelationHub:
                         "probe_id":    client_probe_id,
                         "client_id":   client_id,
                         "src_ip":      client_ip,
+                        "dst_ip":      "192.168.130.129",
+                        "proto":       proto,
                         "flags":       rec.flags,
                     }))
             except RuntimeError:
                 pass  # no event loop running (unit tests)
 
-            # 3. Run diagnostics every 20 records
-            if _record_count[0] % 20 == 0:
+            # 3. Run diagnostics asynchronously in background thread every 50 records
+            if _record_count[0] % 50 == 0:
+                async def _run_diag_bg():
+                    try:
+                        alerts = await asyncio.to_thread(
+                            lambda: get_engine().diagnose(get_engine().correlations(limit=100), persist=True)
+                        )
+                        for alert in (alerts or []):
+                            await _broadcast({
+                                "type":               "alert",
+                                "category":           alert.category,
+                                "severity":           alert.severity,
+                                "confidence":         alert.confidence,
+                                "recommended_action": alert.recommended_action,
+                                "metrics":            alert.metrics,
+                            })
+                    except Exception:
+                        pass
+
                 try:
-                    all_recs = get_engine().correlations(limit=100)
-                    alerts   = get_engine().diagnose(all_recs, persist=True)
-                    if alerts:
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                for alert in alerts:
-                                    asyncio.create_task(_broadcast({
-                                        "type":     "alert",
-                                        "category": alert.category,
-                                        "severity": alert.severity,
-                                        "confidence": alert.confidence,
-                                        "recommended_action": alert.recommended_action,
-                                        "metrics":  alert.metrics,
-                                    }))
-                        except RuntimeError:
-                            pass
-                except Exception:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(_run_diag_bg())
+                except RuntimeError:
                     pass
 
         _hub = CorrelationHub(

@@ -202,9 +202,20 @@ def _make_telemetry(
     ts = packet.timestamp
     timestamp_ns = int(ts * 1_000_000_000) if isinstance(ts, float) else int(ts)
 
-    type_flags = ((_TELEMETRY_FORMAT_VERSION & 0x0F) << 4) | (
-        _TELEMETRY_RECORD_TYPE_PACKET & 0x0F
-    )
+    # Detect protocol code for type_flags nibble (1=TCP, 2=UDP, 3=ICMP, 4=DNS, 5=HTTP)
+    layer_names = [l.name for l in decoded.layers]
+    if "HTTP" in layer_names:
+        rec_type = 5
+    elif "DNS" in layer_names:
+        rec_type = 4
+    elif "ICMP" in layer_names or "ICMPv6" in layer_names:
+        rec_type = 3
+    elif "UDP" in layer_names:
+        rec_type = 2
+    else:
+        rec_type = _TELEMETRY_RECORD_TYPE_PACKET
+
+    type_flags = ((_TELEMETRY_FORMAT_VERSION & 0x0F) << 4) | (rec_type & 0x0F)
 
     return ProbeTelemetry(
         fingerprint=decoded.fingerprint.value,
