@@ -102,7 +102,7 @@ async def health_check() -> dict:
     hub    = get_hub()
     stats  = hub.stats
     total  = stats["matched"] + stats["unmatched"]
-    probes = _get_probes_status(hub)
+    probes = hub.probe_status()
     return {
         "status":    "ok",
         "version":   "0.4.0",
@@ -116,12 +116,6 @@ async def health_check() -> dict:
         },
     }
 
-
-@app.get("/probes")
-async def probe_status() -> dict:
-    """Return current probe connection status — polled by the frontend every 2s."""
-    hub = get_hub()
-    return _get_probes_status(hub)
 
 
 @app.get("/status")

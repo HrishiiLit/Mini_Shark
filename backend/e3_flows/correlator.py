@@ -70,13 +70,13 @@ class _InFlight:
 # ──────────────────────────────────────────────────────────────────────────────
 
 class CorrelationHub:
-    """In-memory O(1) correlation hub for two-probe packet matching.
+    """In-memory O(1) correlation hub for multi-probe packet matching.
 
     Args:
         timeout_ms: Unmatched-packet timeout in milliseconds (default 500).
         on_record:  Callback called with each emitted CorrelationRecord.
                     If None, records are appended to ``self.records``.
-        probe1_id:  Probe ID of the source/client probe (default 1).
+        probe1_id:  Probe ID of default client probe (default 1).
         probe2_id:  Probe ID of the destination/server probe (default 2).
     """
 
@@ -93,8 +93,8 @@ class CorrelationHub:
         self._probe2_id   = probe2_id
 
         # hash tables: fingerprint → _InFlight
-        self._table: dict[int, _InFlight] = {}      # Probe 1 waiting for Probe 2
-        self._table_p2: dict[int, _InFlight] = {}   # Probe 2 waiting for Probe 1
+        self._table: dict[int, _InFlight] = {}      # Ingress clients waiting for Server (Probe 2)
+        self._table_p2: dict[int, _InFlight] = {}   # Server (Probe 2) waiting for Ingress clients
 
         # min-heap: (deadline_ns, fingerprint)
         self._heap: list[tuple[int, int]] = []
@@ -102,8 +102,8 @@ class CorrelationHub:
         # public records list (used when no callback given)
         self.records: list[CorrelationRecord] = []
 
-        # connected probe tracking: probe_id → dict
-        self.connected_probes: dict[int, dict[str, Any]] = {}
+        # connected probe tracking: conn_key (peer_ip:port) → dict
+        self.connected_probes: dict[str, dict[str, Any]] = {}
 
         # stats
         self.stats: dict[str, int] = {
@@ -128,8 +128,50 @@ class CorrelationHub:
         pid  = telemetry.probe_id
         now  = time.time_ns()
 
-        if pid == self._probe1_id:
-            # ── Check if Probe 2 already arrived earlier ─────────────────
+        if pid == self._probe2_id:
+            # ── Server / Egress observation (Probe 2): check if an ingress observation arrived earlier ──
+            entry = self._table.get(fp)
+            if entry is not None and entry.alive:
+                # Normal match — remove from table
+                entry.alive = False
+                del self._table[fp]
+
+                flags = self._dt_flags(entry.timestamp_ns, ts)
+                rec = self._make_record(
+                    fp=fp,
+                    p1_ts=entry.timestamp_ns, p2_ts=ts,
+                    p1_seq=entry.seq, p2_seq=telemetry.seq,
+                    match_state="matched",
+                    deadline_ns=entry.deadline_ns,
+                    flags=flags,
+                    client_probe_id=entry.probe_id,
+                )
+                self.stats["matched"] += 1
+                self._emit(rec)
+                return rec
+
+            # Probe 2 arrived first (out-of-order) — buffer in _table_p2
+            if fp in self._table_p2:
+                self.stats["duplicate_t2"] += 1
+                return None
+
+            deadline = ts + self._timeout_ns
+            entry2 = _InFlight(
+                fingerprint=fp,
+                probe_id=pid,
+                timestamp_ns=ts,
+                seq=telemetry.seq,
+                deadline_ns=deadline,
+                captured_len=telemetry.captured_len,
+            )
+            self._table_p2[fp] = entry2
+            heapq.heappush(self._heap, (deadline, fp))
+            self._compact_heap()
+            return None
+
+        else:
+            # ── Ingress / Client observation (ANY client probe != probe2_id) ──
+            # Check if Probe 2 already arrived earlier (out-of-order arrival)
             entry2 = self._table_p2.get(fp)
             if entry2 is not None and entry2.alive:
                 entry2.alive = False
@@ -142,19 +184,19 @@ class CorrelationHub:
                     match_state="matched",
                     deadline_ns=entry2.deadline_ns,
                     flags=flags,
+                    client_probe_id=pid,
                 )
                 self.stats["matched"] += 1
                 self._emit(rec)
                 return rec
 
-            # ── First observation: store in table + heap ─────────────────
+            # First observation: store in table + heap
             if fp in self._table:
-                # Already have a Probe-1 entry; could be a retransmission.
-                # Keep the existing entry — the new one is treated as duplicate.
+                # Already have an entry; treat as duplicate / retransmission
                 self.stats["duplicate_t2"] += 1
                 return None
 
-            # Enforce memory cap before inserting — evict oldest live entry.
+            # Enforce memory cap before inserting — evict oldest live entry
             self._maybe_evict()
 
             deadline = ts + self._timeout_ns
@@ -171,63 +213,6 @@ class CorrelationHub:
             self._compact_heap()
             return None
 
-        elif pid == self._probe2_id:
-            # ── Check if Probe 1 is waiting ──────────────────────────────
-            entry = self._table.get(fp)
-            if entry is not None and entry.alive:
-                # Normal match — remove from table
-                entry.alive = False
-                del self._table[fp]
-
-                flags = self._dt_flags(entry.timestamp_ns, ts)
-                rec = self._make_record(
-                    fp=fp,
-                    p1_ts=entry.timestamp_ns, p2_ts=ts,
-                    p1_seq=entry.seq, p2_seq=telemetry.seq,
-                    match_state="matched",
-                    deadline_ns=entry.deadline_ns,
-                    flags=flags,
-                )
-                self.stats["matched"] += 1
-                self._emit(rec)
-                return rec
-
-            if entry is not None and not entry.alive:
-                # Already emitted as unmatched; late arrival
-                rec = self._make_record(
-                    fp=fp,
-                    p1_ts=entry.timestamp_ns, p2_ts=ts,
-                    p1_seq=entry.seq, p2_seq=telemetry.seq,
-                    match_state="late",
-                    deadline_ns=entry.deadline_ns,
-                    flags=self._dt_flags(entry.timestamp_ns, ts),
-                )
-                self.stats["late"] += 1
-                self._emit(rec)
-                return rec
-
-            # Probe 2 arrived first: buffer in _table_p2 for up to _timeout_ns
-            if fp in self._table_p2:
-                self.stats["duplicate_t2"] += 1
-                return None
-
-            deadline = ts + self._timeout_ns
-            entry2 = _InFlight(
-                fingerprint=fp,
-                probe_id=pid,
-                timestamp_ns=ts,
-                seq=telemetry.seq,
-                deadline_ns=deadline,
-                captured_len=telemetry.captured_len,
-            )
-            self._table_p2[fp] = entry2
-            heapq.heappush(self._heap, (deadline, fp))
-            return None
-
-        else:
-            logger.warning("Unknown probe_id %d — ignored", pid)
-            return None
-
     def flush_expired(self) -> list[CorrelationRecord]:
         """Force-expire all entries that have passed their deadline.
         Call this periodically or before shutdown.
@@ -241,15 +226,12 @@ class CorrelationHub:
     # ── TCP ingestion server ─────────────────────────────────────────────────
 
     async def start_server(self, host: str = "0.0.0.0", port: int = 9000) -> None:
-        """Start the asyncio TCP ingestion server on *port*.
-
-        This is a coroutine — await it inside an asyncio event loop or
-        create it as a background task::
-
-            asyncio.create_task(hub.start_server())
-        """
+        """Start the asyncio TCP ingestion server on *port*."""
         server = await asyncio.start_server(
-            self._handle_probe_connection, host, port
+            self._handle_probe_connection,
+            host=host,
+            port=port,
+            reuse_port=hasattr(asyncio, "SO_REUSEPORT"),
         )
         addrs = ", ".join(str(s.getsockname()) for s in server.sockets)
         logger.info("E3 TCP ingestion server listening on %s", addrs)
@@ -262,34 +244,33 @@ class CorrelationHub:
         writer: asyncio.StreamWriter,
     ) -> None:
         peer = writer.get_extra_info("peername")
-        peer_ip = peer[0] if peer else "unknown"
-        peer_port = peer[1] if peer else 0
-        probe_id = None
-        now = time.time()
-        logger.info("Probe connected from %s", peer)
+        peer_ip = str(peer[0]) if peer else "unknown"
+        conn_key = f"{peer_ip}:{peer[1] if peer else id(writer)}"
+        probe_id: int | None = None
+        logger.info("Probe connected from %s (%s)", peer, conn_key)
         try:
             probe_id = await self._read_preamble(reader, peer)
-            # Register probe as connected keyed strictly by probe_id
-            self.connected_probes[probe_id] = {
+            # Register probe with conn_key so multiple client probes can connect simultaneously
+            self.connected_probes[conn_key] = {
+                "conn_key": conn_key,
                 "peer": peer,
-                "ip": str(peer_ip),
-                "port": peer_port,
-                "connected_at": now,
-                "last_seen": now,
+                "ip": peer_ip,
+                "port": peer[1] if peer else 0,
                 "probe_id": probe_id,
+                "connected_at": time.time(),
+                "last_seen": time.time(),
                 "records": 0,
             }
-            logger.info("Probe %d registered from %s", probe_id, peer_ip)
-            await self._read_records(reader, peer, probe_id)
+            logger.info("Probe %d registered from %s (%s)", probe_id, peer_ip, conn_key)
+            await self._read_records(reader, peer, conn_key)
         except asyncio.IncompleteReadError:
-            logger.info("Probe %s disconnected", peer)
+            logger.info("Probe %s (probe_id=%s) disconnected", peer, probe_id)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Probe %s error: %s", peer, exc)
         finally:
-            # Unregister probe on disconnect
-            if probe_id is not None and probe_id in self.connected_probes:
-                del self.connected_probes[probe_id]
-                logger.info("Probe %d unregistered", probe_id)
+            if conn_key in self.connected_probes:
+                del self.connected_probes[conn_key]
+                logger.info("Probe %s (%s) unregistered", probe_id, conn_key)
             writer.close()
             try:
                 await writer.wait_closed()
@@ -316,7 +297,7 @@ class CorrelationHub:
         return probe_id
 
     async def _read_records(
-        self, reader: asyncio.StreamReader, peer: Any, probe_id: int = 0
+        self, reader: asyncio.StreamReader, peer: Any, conn_key: str = ""
     ) -> None:
         """Read fixed-size 24-byte records until connection closes."""
         while True:
@@ -326,26 +307,26 @@ class CorrelationHub:
             except ValueError as exc:
                 logger.warning("Malformed record from %s: %s", peer, exc)
                 continue
-
-            pid = telemetry.probe_id or probe_id
-            now = time.time()
-            is_heartbeat = (telemetry.type_flags & 0x0F == 3) or (telemetry.fingerprint == 0)
-            if pid in self.connected_probes:
-                self.connected_probes[pid]["last_seen"] = now
-                if not is_heartbeat:
-                    self.connected_probes[pid]["records"] += 1
-
-            if not is_heartbeat:
-                self.ingest(telemetry)
+            now_sec = time.time()
+            if conn_key in self.connected_probes:
+                self.connected_probes[conn_key]["last_seen"] = now_sec
+                self.connected_probes[conn_key]["records"] += 1
+            self.ingest(telemetry)
 
     def probe_status(self) -> dict[str, Any]:
         """Return connected probes snapshot in dashboard format."""
         now = time.time()
-        p1 = self.connected_probes.get(self._probe1_id)
-        p2 = self.connected_probes.get(self._probe2_id)
+        active = [
+            p for p in self.connected_probes.values()
+            if (now - p.get("last_seen", 0)) < 30.0
+        ]
+        # Ingress clients: any probe that is NOT probe2
+        client_probes = [p for p in active if p["probe_id"] != self._probe2_id]
+        p1 = client_probes[0] if client_probes else None
+        p2 = next((p for p in active if p["probe_id"] == self._probe2_id), None)
 
-        p1_online = p1 is not None and (now - p1.get("last_seen", 0)) < 30.0
-        p2_online = p2 is not None and (now - p2.get("last_seen", 0)) < 30.0
+        p1_online = p1 is not None
+        p2_online = p2 is not None
 
         active_list = [
             {
@@ -354,14 +335,13 @@ class CorrelationHub:
                 "records": p.get("records", 0),
                 "connected_at": p.get("connected_at", now),
             }
-            for p in self.connected_probes.values()
-            if (now - p.get("last_seen", 0)) < 30.0
+            for p in active
         ]
         return {
             "probe1_connected": p1_online,
-            "probe1_ip": p1["ip"] if (p1_online and p1) else None,
+            "probe1_ip": p1["ip"] if p1_online else None,
             "probe2_connected": p2_online,
-            "probe2_ip": p2["ip"] if (p2_online and p2) else None,
+            "probe2_ip": p2["ip"] if p2_online else None,
             "active_clients": active_list,
             "total_connected": len(active_list),
         }
@@ -411,6 +391,7 @@ class CorrelationHub:
                     match_state="unmatched",
                     deadline_ns=entry.deadline_ns,
                     flags=0,
+                    client_probe_id=entry.probe_id,
                 )
                 self.stats["unmatched"] += 1
                 self._emit(rec)
@@ -425,7 +406,7 @@ class CorrelationHub:
                 break
             heapq.heappop(self._heap)
 
-            # Check Probe 1 in-flight
+            # Check Ingress clients in-flight
             entry = self._table.get(fp)
             if entry is not None and entry.alive:
                 entry.alive = False
@@ -437,6 +418,7 @@ class CorrelationHub:
                     match_state="unmatched",
                     deadline_ns=entry.deadline_ns,
                     flags=0,
+                    client_probe_id=entry.probe_id,
                 )
                 self.stats["unmatched"] += 1
                 self._emit(rec)
@@ -481,6 +463,7 @@ class CorrelationHub:
         match_state: str,
         deadline_ns: int,
         flags: int,
+        client_probe_id: int = 1,
     ) -> CorrelationRecord:
         delay_ns = None
         if p1_ts is not None and p2_ts is not None:
@@ -488,7 +471,7 @@ class CorrelationHub:
             if delay_ns < 0 or delay_ns > 5_000_000_000:
                 flags |= CLOCK_SKEW_SUSPECT
 
-        return CorrelationRecord(
+        rec = CorrelationRecord(
             fingerprint=fp,
             probe1_observed=p1_ts is not None,
             probe2_observed=p2_ts is not None,
@@ -502,6 +485,8 @@ class CorrelationHub:
             probe1_seq=p1_seq,
             probe2_seq=p2_seq,
         )
+        object.__setattr__(rec, "client_probe_id", client_probe_id)
+        return rec
 
     def _emit(self, record: CorrelationRecord) -> None:
         if self._on_record:

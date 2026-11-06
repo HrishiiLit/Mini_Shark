@@ -60,28 +60,6 @@ def _get_probes_status(hub: Any) -> dict[str, Any]:
         except Exception:
             pass
 
-    connected = getattr(hub, "connected_probes", {})
-    if isinstance(connected, dict):
-        p1 = connected.get(1)
-        p2 = connected.get(2)
-        clients = []
-        for k, v in connected.items():
-            if isinstance(k, int) and isinstance(v, dict):
-                clients.append({
-                    "ip": v.get("ip", "unknown"),
-                    "probe_id": k,
-                    "records": v.get("records", 0),
-                    "connected_at": v.get("connected_at", time.time()),
-                })
-        return {
-            "probe1_connected": p1 is not None,
-            "probe1_ip": p1.get("ip") if isinstance(p1, dict) else None,
-            "probe2_connected": p2 is not None,
-            "probe2_ip": p2.get("ip") if isinstance(p2, dict) else None,
-            "active_clients": clients,
-            "total_connected": len(clients),
-        }
-
     return {
         "probe1_connected": False,
         "probe1_ip": None,
@@ -140,6 +118,8 @@ def get_hub() -> CorrelationHub:
 
             # 2. Broadcast to all WebSocket clients
             delay_ms = round(rec.delay_ns / 1_000_000, 3) if rec.delay_ns is not None else None
+            client_probe_id = getattr(rec, "client_probe_id", 1)
+            client_id = 0 if client_probe_id == 1 else 1
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -152,6 +132,8 @@ def get_hub() -> CorrelationHub:
                         "t2_ns":       rec.t2_ns,
                         "probe1_seq":  rec.probe1_seq,
                         "probe2_seq":  rec.probe2_seq,
+                        "probe_id":    client_probe_id,
+                        "client_id":   client_id,
                         "flags":       rec.flags,
                     }))
             except RuntimeError:
@@ -296,7 +278,6 @@ async def websocket_live(ws: WebSocket) -> None:
             # Push a metrics snapshot every second
             stats = get_engine().correlation_stats()
             recent_alerts = get_engine().alerts(limit=5)
-            probes = _get_probes_status(get_hub())
             await ws.send_text(json.dumps({
                 "type": "metrics",
                 "timestamp": time.time(),
