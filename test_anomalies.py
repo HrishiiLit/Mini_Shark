@@ -34,20 +34,11 @@ def on_record(rec):
 
 hub = CorrelationHub(timeout_ms=500, on_record=on_record)
 
-SEP  = "─" * 60
-SEP2 = "═" * 60
 base_ns = int(time.time() * 1e9)
+print("Mini-Shark Anomaly Test Suite")
 
-print(f"\n{SEP2}")
-print("  Mini-Shark — Anomaly Test Suite")
-print(SEP2)
-
-# ──────────────────────────────────────────────────────────────────
-# TEST 1: DNS Exfiltration (high entropy query names)
-# ──────────────────────────────────────────────────────────────────
-print(f"\n{SEP}")
-print("TEST 1: DNS Exfiltration Detection")
-print(SEP)
+# Test 1: DNS exfiltration
+print("\n--- TEST 1: DNS Exfiltration Detection ---")
 
 suspicious_names = [
     "xk2m9pqvzjrfhbtw.exfil.attacker.io",          # H ≈ 4.4
@@ -71,12 +62,8 @@ for i, name in enumerate(suspicious_names):
     print(f"  Query: {name[:45]:<45}  H = {H:.4f}  {flag}" if H else
           f"  Query: {name:<45}  H = N/A")
 
-# ──────────────────────────────────────────────────────────────────
-# TEST 2: Packet Loss (unmatched packets — no Probe 2 observation)
-# ──────────────────────────────────────────────────────────────────
-print(f"\n{SEP}")
-print("TEST 2: Packet Loss Detection")
-print(SEP)
+# Test 2: Packet loss
+print("\n--- TEST 2: Packet Loss Detection ---")
 
 print("  Sending 20 matched packets + 6 lost packets...")
 for i in range(20):
@@ -104,12 +91,8 @@ print(f"  Matched  : {hub.stats['matched']}")
 print(f"  Unmatched: {hub.stats['unmatched']}  → Loss rate: {loss_rate:.1f}%")
 print(f"  Expected alert: PACKET_LOSS (threshold > 5%)")
 
-# ──────────────────────────────────────────────────────────────────
-# TEST 3: Bufferbloat (rising ΔT trend)
-# ──────────────────────────────────────────────────────────────────
-print(f"\n{SEP}")
-print("TEST 3: Bufferbloat Detection (rising delay trend)")
-print(SEP)
+# Test 3: Bufferbloat
+print("\n--- TEST 3: Bufferbloat Detection (rising delay trend) ---")
 
 hub2 = CorrelationHub(timeout_ms=500, on_record=on_record)
 print("  Sending 30 packets with rising ΔT (1ms → 20ms):")
@@ -126,12 +109,8 @@ for i in range(30):
     if i % 10 == 9:
         print(f"    pkt {i:2d}: ΔT = {dt/1e6:.2f} ms")
 
-# ──────────────────────────────────────────────────────────────────
-# TEST 4: App Freeze (avg ΔT > 150ms)
-# ──────────────────────────────────────────────────────────────────
-print(f"\n{SEP}")
-print("TEST 4: Application Freeze Detection (avg delay > 150ms)")
-print(SEP)
+# Test 4: Application freeze
+print("\n--- TEST 4: Application Freeze Detection (avg delay > 150ms) ---")
 
 hub3 = CorrelationHub(timeout_ms=1000, on_record=on_record)
 print("  Sending 10 packets with 200ms+ delay (server not responding fast):")
@@ -147,12 +126,8 @@ for i in range(10):
                                 seq=i, probe_id=2, type_flags=0x11, captured_len=500))
     print(f"    pkt {i}: ΔT = {dt/1e6:.0f} ms")
 
-# ──────────────────────────────────────────────────────────────────
-# Run diagnostics and store everything
-# ──────────────────────────────────────────────────────────────────
-print(f"\n{SEP2}")
-print("  Running Diagnostic Rules on all records...")
-print(SEP2)
+# Diagnostic evaluation
+print("\n--- Running Diagnostic Rules on all records ---")
 
 engine.store_correlations(records)
 
@@ -171,7 +146,5 @@ for a in alerts:
     print(f"     Action     : {a.recommended_action[:80]}...")
     print()
 
-print(SEP2)
-print("  Done — open http://127.0.0.1:5173 → Stats tab to see alerts in dashboard")
-print(SEP2)
+print("Done. View alerts in dashboard.")
 engine.close()

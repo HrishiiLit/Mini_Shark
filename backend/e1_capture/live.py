@@ -40,9 +40,7 @@ from backend.models import Packet
 
 logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────────────────────────
-# Scapy / Windows path
-# ─────────────────────────────────────────────────────────────────
+# Scapy backend (Windows)
 
 try:
     from scapy.all import conf, sniff, IFACES as _SCAPY_IFACES  # type: ignore
@@ -157,9 +155,7 @@ class LiveCapture:
             )
 
 
-# ─────────────────────────────────────────────────────────────────
-# AF_PACKET / Linux path (no external dependencies)
-# ─────────────────────────────────────────────────────────────────
+# AF_PACKET raw socket backend (Linux)
 
 #: True only on Linux kernels that expose AF_PACKET
 _AFPACKET_AVAILABLE: bool = (
@@ -290,7 +286,7 @@ class AFPacketCapture:
         self.iface = _pick_linux_interface(iface)
         self.timeout = timeout
 
-    # ── Public API (same shape as LiveCapture) ──────────────────────
+    # Public API
 
     def capture(self, count: int = 100, bpf_filter: str = "") -> list[Packet]:
         """Capture up to *count* packets; returns when count reached or timeout.
@@ -306,7 +302,7 @@ class AFPacketCapture:
         """Streaming version — yields packets as they arrive."""
         yield from self._iter_capture(count)
 
-    # ── Internal ────────────────────────────────────────────────────
+    # Internal capture loop
 
     def _iter_capture(self, count: int) -> Iterator[Packet]:
         sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, _ETH_P_ALL)
@@ -341,9 +337,7 @@ class AFPacketCapture:
             sock.close()
 
 
-# ─────────────────────────────────────────────────────────────────
-# Factory — picks the right backend for the current OS
-# ─────────────────────────────────────────────────────────────────
+# Factory: select platform capturer
 
 def get_live_capturer(
     iface: str | None = None,

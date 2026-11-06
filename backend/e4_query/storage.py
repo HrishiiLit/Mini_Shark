@@ -25,9 +25,7 @@ from backend.models import (
     Packet,
 )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Schema
-# ──────────────────────────────────────────────────────────────────────────────
+# Database schema definitions
 
 _SCHEMA_V1 = """
 PRAGMA journal_mode=WAL;
@@ -136,9 +134,7 @@ CREATE INDEX IF NOT EXISTS idx_alert_detected   ON diagnostic_alerts(detected_at
 
 _SCHEMA_VERSION = 2
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Insert templates
-# ──────────────────────────────────────────────────────────────────────────────
+# Insert statements
 
 _INSERT_PACKET = (
     "INSERT INTO packets (capture_id, packet_index, timestamp, length, raw) "
@@ -166,9 +162,7 @@ _INSERT_ALERT = (
     "VALUES (?, ?, ?, ?, ?, ?, ?)"
 )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Row helpers
-# ──────────────────────────────────────────────────────────────────────────────
+# Row serialization helpers
 
 def _dump(obj: Any) -> str:
     return json.dumps(obj, default=str, sort_keys=True)
@@ -240,9 +234,7 @@ def row_to_alert(row: sqlite3.Row) -> DiagnosticAlert:
     )
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# CaptureStore
-# ──────────────────────────────────────────────────────────────────────────────
+# SQLite storage repository
 
 class CaptureStore:
     """Thin repository over a SQLite database (schema v2).
@@ -279,7 +271,7 @@ class CaptureStore:
     def close(self) -> None:
         self._conn.close()
 
-    # ── Offline capture persistence ────────────────────────────────────
+    # Offline capture persistence
 
     def persist(
         self,
@@ -316,7 +308,7 @@ class CaptureStore:
                 raise StorageError(f"failed to store capture: {exc}") from exc
         return capture_id
 
-    # ── Distributed mode persistence ───────────────────────────────────
+    # Correlation persistence
 
     def store_correlation(self, record: CorrelationRecord) -> int:
         """Insert one CorrelationRecord; returns its row id."""
@@ -406,7 +398,7 @@ class CaptureStore:
             except sqlite3.Error as exc:
                 raise StorageError(f"failed to store alerts: {exc}") from exc
 
-    # ── Queries ─────────────────────────────────────────────────────────
+    # Query methods
 
     def list_captures(self) -> list[dict[str, Any]]:
         rows = self._execute(
@@ -550,9 +542,7 @@ class CaptureStore:
             raise StorageError(f"query failed: {exc}") from exc
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────────────────
+# Query helpers
 
 def _layer_rows(capture_id: int, decoded: Sequence[DecodedPacket]) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []

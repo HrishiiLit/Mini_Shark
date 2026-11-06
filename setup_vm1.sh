@@ -15,7 +15,7 @@ echo "  IP: 192.168.130.129"
 echo "=================================================="
 echo -e "${NC}"
 
-# ── Step 1: System packages ──────────────────────────────────
+# Step 1: System packages
 echo -e "${YELLOW}[1/6] Installing system packages...${NC}"
 sudo apt update -qq
 sudo apt install -y python3 python3-pip python3-venv git curl net-tools iproute2 \
@@ -29,7 +29,7 @@ if ! command -v node &> /dev/null; then
 fi
 echo -e "${GREEN}✓ System packages ready${NC}"
 
-# ── Step 2: Clone repo ───────────────────────────────────────
+# Step 2: Clone repo
 echo -e "${YELLOW}[2/6] Setting up Mini-Shark repository...${NC}"
 if [ ! -d "$HOME/Mini_Shark" ]; then
     git clone https://github.com/HrishiiLit/Mini_Shark.git "$HOME/Mini_Shark"
@@ -41,7 +41,7 @@ cd "$HOME/Mini_Shark"
 git checkout integration
 echo -e "${GREEN}✓ Repository ready on integration branch${NC}"
 
-# ── Step 3: Python venv ──────────────────────────────────────
+# Step 3: Python virtual environment
 echo -e "${YELLOW}[3/6] Creating Python virtual environment...${NC}"
 cd "$HOME/Mini_Shark"
 python3 -m venv .venv
@@ -50,26 +50,26 @@ pip install -q -r requirements.txt
 pip install -q scapy
 echo -e "${GREEN}✓ Python environment ready${NC}"
 
-# ── Step 4: Frontend dependencies ───────────────────────────
+# Step 4: Frontend dependencies
 echo -e "${YELLOW}[4/6] Installing frontend dependencies...${NC}"
 cd "$HOME/Mini_Shark/frontend"
 npm install --silent
 echo -e "${GREEN}✓ Frontend ready${NC}"
 
-# ── Step 5: Python capture permissions ──────────────────────
+# Step 5: Capture permissions
 echo -e "${YELLOW}[5/6] Setting packet capture permissions...${NC}"
 PYTHON_PATH=$(which python3)
 sudo setcap cap_net_raw,cap_net_admin=eip $PYTHON_PATH
 echo -e "${GREEN}✓ Capture permissions set (no sudo needed)${NC}"
 
-# ── Step 6: Firewall ─────────────────────────────────────────
+# Step 6: Firewall
 echo -e "${YELLOW}[6/6] Opening firewall ports...${NC}"
 sudo ufw allow 9000/tcp comment "MiniShark E3 telemetry" 2>/dev/null || true
 sudo ufw allow 8001/tcp comment "MiniShark API" 2>/dev/null || true
 sudo ufw allow 5173/tcp comment "MiniShark Dashboard" 2>/dev/null || true
 echo -e "${GREEN}✓ Firewall configured${NC}"
 
-# ── Print start instructions ─────────────────────────────────
+# Instructions
 echo ""
 echo -e "${CYAN}=================================================="
 echo "  VM1 Setup Complete!"

@@ -16,14 +16,14 @@ echo "  Sends telemetry to VM1: 192.168.130.129:9000"
 echo "=================================================="
 echo -e "${NC}"
 
-# ── Step 1: System packages ──────────────────────────────────
+# Step 1: System packages
 echo -e "${YELLOW}[1/4] Installing system packages...${NC}"
 sudo apt update -qq
 sudo apt install -y python3 python3-pip python3-venv git curl \
                     tcpdump nmap netcat-openbsd 2>&1 | tail -5
 echo -e "${GREEN}✓ System packages ready${NC}"
 
-# ── Step 2: Clone repo ───────────────────────────────────────
+# Step 2: Clone repo
 echo -e "${YELLOW}[2/4] Setting up Mini-Shark repository...${NC}"
 if [ ! -d "$HOME/Mini_Shark" ]; then
     git clone https://github.com/HrishiiLit/Mini_Shark.git "$HOME/Mini_Shark"
@@ -36,7 +36,7 @@ git checkout integration
 git pull origin integration
 echo -e "${GREEN}✓ Repository ready on integration branch${NC}"
 
-# ── Step 3: Python venv ──────────────────────────────────────
+# Step 3: Python virtual environment
 echo -e "${YELLOW}[3/4] Creating Python virtual environment...${NC}"
 cd "$HOME/Mini_Shark"
 python3 -m venv .venv
@@ -45,13 +45,13 @@ pip install -q -r requirements.txt
 pip install -q scapy
 echo -e "${GREEN}✓ Python environment ready${NC}"
 
-# ── Step 4: Capture permissions ──────────────────────────────
+# Step 4: Capture permissions
 echo -e "${YELLOW}[4/4] Setting packet capture permissions...${NC}"
 PYTHON_PATH=$(which python3)
 sudo setcap cap_net_raw,cap_net_admin=eip $PYTHON_PATH
 echo -e "${GREEN}✓ Capture permissions set${NC}"
 
-# ── Verify connectivity to VM1 ────────────────────────────────
+# Verify connectivity to VM1
 echo ""
 echo -e "${YELLOW}Checking connectivity to VM1 (192.168.130.129)...${NC}"
 if ping -c 3 192.168.130.129 &>/dev/null; then
@@ -66,7 +66,7 @@ else
     echo -e "${YELLOW}⚠ Port 9000 not yet open (start server on VM1 first)${NC}"
 fi
 
-# ── Print start instructions ─────────────────────────────────
+# Instructions
 echo ""
 echo -e "${CYAN}=================================================="
 echo "  VM2 Setup Complete!"

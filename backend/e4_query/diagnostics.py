@@ -18,9 +18,7 @@ from collections.abc import Sequence
 
 from backend.models import CorrelationRecord, DecodedPacket, DiagnosticAlert
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Thresholds (all configurable)
-# ──────────────────────────────────────────────────────────────────────────────
+# Diagnostic thresholds
 LOSS_THRESHOLD       = 0.05   # 5 % unmatched → PACKET_LOSS
 BUFFERBLOAT_SLOPE_MS = 0.5    # ΔT rising by > 0.5 ms/packet → BUFFERBLOAT
 APP_FREEZE_MS        = 150.0  # avg ΔT > 150 ms → APP_FREEZE
@@ -28,9 +26,7 @@ DNS_ENTROPY_THRESH   = 4.2    # H(X) > 4.2 → DNS_EXFIL_SUSPECTED
 MIN_RECORDS          = 5      # need at least this many records to fire
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Individual rules
-# ──────────────────────────────────────────────────────────────────────────────
+# Diagnostic rules
 
 def rule_packet_loss(records: Sequence[CorrelationRecord]) -> DiagnosticAlert | None:
     """Fire when ≥ 5 % of packets are unmatched within the window."""
@@ -182,9 +178,7 @@ def rule_dns_exfil(decoded_packets: Sequence[DecodedPacket]) -> DiagnosticAlert 
     )
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Unified runner
-# ──────────────────────────────────────────────────────────────────────────────
+# Unified diagnostic runner
 
 def run_diagnostics(
     records: Sequence[CorrelationRecord],

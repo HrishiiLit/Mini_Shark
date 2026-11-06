@@ -84,7 +84,7 @@ _hub: CorrelationHub | None = None
 
 _UPLOAD_FILE = File()
 
-# ── Connected WebSocket clients ──────────────────────────────────────────────
+# Connected WebSocket clients
 _ws_clients: list[WebSocket] = []
 
 
@@ -183,7 +183,7 @@ async def _broadcast(message: dict[str, Any]) -> None:
         _ws_clients.remove(ws)
 
 
-# ── Serialization helpers ────────────────────────────────────────────────────
+# Serialization helpers
 
 class QueryRequest(BaseModel):
     filter: str = ""
@@ -563,7 +563,7 @@ def live_capture(
     }
 
 
-# ── Per-session capture stop flags ──────────────────────────────────────────
+# Session capture control
 # Key = session_id (UUID), value = threading.Event
 import threading
 import uuid

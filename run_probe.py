@@ -1,23 +1,8 @@
-"""
-Mini-Shark — Probe Runner (E1 + E2 + Telemetry Sender)
-=======================================================
-Run this on EACH probe machine AFTER the central server is started.
+"""Mini-Shark live probe runner.
 
-    Probe 1 (Client VM  192.168.10.11 / 192.168.130.128):
-        sudo python run_probe.py --probe-id 1 --server 192.168.130.129:9000
-
-    Probe 2 (Server VM  192.168.20.20 / 192.168.130.129):
-        sudo python run_probe.py --probe-id 2 --server 127.0.0.1:9000
-
-    Windows dev machine (single-host test):
-        python run_probe.py --probe-id 1 --server 127.0.0.1:9000
-
-Capture backend selection (automatic):
-    Linux   → AF_PACKET raw socket (zero extra deps, requires sudo/CAP_NET_RAW)
-    Windows → Scapy + Npcap  (pip install scapy, Npcap from https://npcap.com)
-
-Connection flow:
-    Probe → TCP connect to port 9000 → MSHK preamble → 24-byte records (+ heartbeats)
+Captures packets on a specified network interface (E1), extracts invariant
+packet header fields to compute 64-bit BLAKE2b fingerprints (E2), and streams
+24-byte telemetry records to the central correlation hub on port 9000.
 """
 
 from __future__ import annotations
@@ -35,30 +20,18 @@ from backend.e2_dissection.engine import ProtocolDissector
 from backend.probe.client import TelemetryClient
 from backend.models import Packet
 
-SEP  = "─" * 62
-SEP2 = "═" * 62
+SEP = "─" * 60
+_HEARTBEAT_INTERVAL_S = 5.0
 
-_HEARTBEAT_INTERVAL_S = 5.0   # send a heartbeat every N seconds of idle traffic
-
-
-# ─────────────────────────────────────────────────────────────────
-# Startup guard — warn when connecting to loopback in multi-VM mode
-# ─────────────────────────────────────────────────────────────────
 
 def _warn_if_loopback(host: str, probe_id: int) -> None:
-    """Print a prominent warning when the server address resolves to loopback."""
+    """Warn when probe is connecting to loopback during multi-host deployments."""
     if host in ("127.0.0.1", "::1", "localhost"):
         print(
-            f"\n  ⚠  WARNING: Probe {probe_id} is connecting to loopback ({host}).\n"
-            f"     This is fine for single-machine testing, but in a multi-VM\n"
-            f"     deployment you almost certainly want:\n"
-            f"       --server 192.168.10.1:9000  (the hub VM's IP address)\n"
+            f"\n  [Notice] Probe {probe_id} connecting to loopback ({host}).\n"
+            f"  For multi-machine setups, specify the central server IP (e.g. --server 10.108.157.2:9000).\n"
         )
 
-
-# ─────────────────────────────────────────────────────────────────
-# Main probe loop
-# ─────────────────────────────────────────────────────────────────
 
 def run_probe(
     probe_id: int,
@@ -67,12 +40,12 @@ def run_probe(
     iface: str | None,
     bpf_filter: str,
 ) -> None:
-
+    """Run live capture loop and stream packet fingerprints to E3 server."""
     _warn_if_loopback(host, probe_id)
 
     dissector = ProtocolDissector()
 
-    # Resolve interface name (Windows scapy GUID lookup; on Linux intelligent auto-detection)
+    # Resolve capture interface
     if platform.system() == "Windows":
         iface_name = _pick_interface(iface)
     else:
@@ -81,49 +54,45 @@ def run_probe(
     if iface and iface != iface_name:
         print(f"  [Probe {probe_id}] Notice: interface '{iface}' unavailable; using '{iface_name}'")
 
-    print(f"\n{SEP2}")
-    print(f"  Mini-Shark  ·  Probe {probe_id}")
-    print(SEP2)
+    print(f"\n{SEP}")
+    print(f"  Mini-Shark Probe {probe_id}")
+    print(SEP)
     print(f"  OS          : {platform.system()}")
     print(f"  Interface   : {iface_name}")
     print(f"  E3 Server   : {host}:{port}")
     print(f"  BPF filter  : {bpf_filter or '(none — capture everything)'}")
-    print(f"  Algorithm   : BLAKE2b-64  |  Timeout: 500 ms")
+    print(f"  Algorithm   : BLAKE2b-64")
     print(f"{SEP}")
 
-    # ── Connect to E3 ──────────────────────────────────────────────
+    # Connect to telemetry server
     client = TelemetryClient(host=host, port=port, probe_id=probe_id)
     client.connect()
 
-    # ── Build capture backend ──────────────────────────────────────
     capturer = get_live_capturer(iface=iface_name, timeout=1.0, target_host=host)
 
     print(f"\n  [Probe {probe_id}] Backend    : {type(capturer).__name__}")
-    print(f"  [Probe {probe_id}] Starting continuous live capture...")
-    print(f"  [Probe {probe_id}] Press Ctrl+C to stop\n")
+    print(f"  [Probe {probe_id}] Live capture started. Press Ctrl+C to stop.\n")
     print(f"  {'#':<8} {'Layers':<38} {'Fingerprint':<20} {'Info'}")
     print(f"  {'-'*8} {'-'*38} {'-'*20} {'-'*30}")
 
-    seq       = 0
-    sent      = 0
-    skipped   = 0
+    seq = 0
+    sent = 0
+    skipped = 0
     fragments = 0
-    last_sent = time.time()
+    last_hb = time.time()
+    last_packet_time = time.time()
 
     try:
         while True:
-            # ── Heartbeat (if no telemetry records transmitted in _HEARTBEAT_INTERVAL_S) ──
+            # Idle keepalive heartbeat
             now = time.time()
-            if now - last_sent >= _HEARTBEAT_INTERVAL_S:
+            if now - last_packet_time >= _HEARTBEAT_INTERVAL_S and now - last_hb >= _HEARTBEAT_INTERVAL_S:
                 ok = client.send_heartbeat(seq=seq)
-                if ok:
-                    last_sent = now
-                else:
-                    print(f"\n  [Probe {probe_id}] Lost connection (heartbeat). Reconnecting...")
+                if not ok:
+                    print(f"\n  [Probe {probe_id}] Reconnecting...")
                     client.reconnect()
-                    last_sent = time.time()
+                last_hb = now
 
-            # ── Capture a 2-second burst ────────────────────────────
             try:
                 raw_pkts = capturer.capture(count=100, bpf_filter=bpf_filter)
             except Exception as exc:
@@ -131,25 +100,9 @@ def run_probe(
                 time.sleep(1)
                 continue
 
-            for sp in raw_pkts:
-                # sp is already a Packet from AFPacketCapture / LiveCapture
-                pkt = sp
-
+            for pkt in raw_pkts:
                 decoded = dissector.dissect_one(pkt)
 
-                # Skip probe telemetry and web traffic to avoid sniffer feedback loop
-                is_internal = False
-                for layer in decoded.layers:
-                    if layer.name in ("TCP", "UDP"):
-                        sp_p = layer.fields.get("src_port")
-                        dp_p = layer.fields.get("dst_port")
-                        if sp_p in (port, 8001, 5173) or dp_p in (port, 8001, 5173):
-                            is_internal = True
-                            break
-                if is_internal:
-                    continue
-
-                # Detect IP fragments (no fingerprint possible)
                 is_frag = any(
                     layer.fields.get("fragment")
                     for layer in decoded.layers
@@ -164,7 +117,8 @@ def run_probe(
                     continue
 
                 telemetry = dissector.make_telemetry(
-                    decoded, pkt,
+                    decoded,
+                    pkt,
                     probe_id=probe_id,
                     seq=seq,
                 )
@@ -174,97 +128,86 @@ def run_probe(
 
                 wire = telemetry.pack()
 
-                # Send with auto-reconnect on failure
                 ok = client.send(wire)
                 if not ok:
-                    print(f"\n  [Probe {probe_id}] Lost connection. Reconnecting...")
+                    print(f"\n  [Probe {probe_id}] Connection lost, reconnecting...")
                     client.reconnect()
-                    client.send(wire)   # retry once after reconnect
+                    client.send(wire)
 
-                last_sent = time.time()
                 sent += 1
-                seq  += 1
+                seq += 1
+                last_packet_time = time.time()
 
-                # ── Console output every 5th packet ────────────────
+                # Print sample output every 5th packet
                 if sent % 5 == 1:
-                    layers    = " > ".join(l.name for l in decoded.layers)
-                    fp_short  = f"0x{decoded.fingerprint.value:016X}"
-                    info      = ""
+                    layers = " > ".join(l.name for l in decoded.layers)
+                    fp_short = f"0x{decoded.fingerprint.value:016X}"
+                    info = ""
                     for layer in decoded.layers:
                         if layer.name == "DNS":
-                            qs   = layer.fields.get("questions", [])
+                            qs = layer.fields.get("questions", [])
                             name = qs[0].get("name", "") if qs else ""
-                            H    = decoded.dns_entropy
+                            H = decoded.dns_entropy
                             info = f"DNS: {name[:25]}"
                             if H and H > 4.2:
-                                info += f" ⚠ H={H:.2f}"
+                                info += f" [H={H:.2f}]"
                             break
                         if layer.name == "HTTP":
                             info = layer.fields.get("start_line", "")[:30]
                             break
                         if layer.name == "TCP":
-                            info = (
-                                f"{layer.fields.get('src_port','')} → "
-                                f"{layer.fields.get('dst_port','')}"
-                            )
-                    print(
-                        f"  {sent:<8} {layers[:38]:<38} "
-                        f"{fp_short:<20} {info}"
-                    )
+                            info = f"{layer.fields.get('src_port','')} → {layer.fields.get('dst_port','')}"
+                    print(f"  {sent:<8} {layers[:38]:<38} {fp_short:<20} {info}")
 
     except KeyboardInterrupt:
-        print(f"\n{SEP}")
-        print(f"  [Probe {probe_id}] Stopped by user.")
-        print(f"  Packets sent      : {sent}")
-        print(f"  Skipped (no fp)   : {skipped}")
+        print(f"\n\n{SEP}")
+        print(f"  Probe {probe_id} stopped")
+        print(f"  Sent records      : {sent}")
+        print(f"  Skipped packets   : {skipped}")
         print(f"  Fragments (no fp) : {fragments}")
         print(f"  Total captured    : {seq}")
-        print(f"{SEP2}\n")
+        print(f"{SEP}\n")
 
     finally:
         client.close()
 
 
-# ─────────────────────────────────────────────────────────────────
-# CLI entry point
-# ─────────────────────────────────────────────────────────────────
-
 def main() -> None:
+    """CLI entry point for running a probe."""
     parser = argparse.ArgumentParser(
-        description="Mini-Shark Probe Runner — E1 + E2 + telemetry sender",
+        description="Mini-Shark live probe runner (E1 capture + E2 fingerprinting)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  Linux  (Probe 1): sudo python run_probe.py --probe-id 1 "
-            "--server 192.168.10.1:9000 --iface ens33\n"
-            "  Windows (Probe 1): python run_probe.py --probe-id 1 "
-            "--server 192.168.10.1:9000 --iface Wi-Fi\n"
-        ),
     )
     parser.add_argument(
-        "--probe-id", type=int, required=True, choices=[1, 2],
-        help="Probe identity: 1=client side, 2=server/gateway side",
+        "--probe-id",
+        type=int,
+        required=True,
+        help="Probe identity: 1=client side, 2=server side, 3+=additional clients",
     )
     parser.add_argument(
-        "--server", type=str, default="127.0.0.1:9000",
-        help="Central hub address as host:port (default: 127.0.0.1:9000). "
-             "In multi-VM deployment use the hub VM IP, e.g. 192.168.10.1:9000",
+        "--server",
+        type=str,
+        default="127.0.0.1:9000",
+        help="Central hub host:port (default: 127.0.0.1:9000)",
     )
     parser.add_argument(
-        "--iface", type=str, default=None,
-        help="Network interface (Linux: eth0/ens33; Windows: Wi-Fi/Ethernet). "
-             "Default: auto-detects active route interface on Linux, Wi-Fi on Windows.",
+        "--iface",
+        type=str,
+        default=None,
+        help="Network interface to capture (auto-detected if omitted)",
     )
     parser.add_argument(
-        "--filter", type=str, default="",
+        "--filter",
+        type=str,
+        default="",
         dest="bpf_filter",
-        help='BPF filter string, e.g. "tcp" or "port 53" (Windows/Scapy only).',
+        help="BPF filter expression (e.g. 'host 10.108.157.2')",
     )
     args = parser.parse_args()
 
     parts = args.server.rsplit(":", 1)
     if len(parts) != 2 or not parts[1].isdigit():
-        print("Error: --server must be host:port  e.g. 192.168.10.1:9000")
+        print("Error: --server must be host:port format, e.g. 10.108.157.2:9000")
         sys.exit(1)
 
     host, port = parts[0], int(parts[1])

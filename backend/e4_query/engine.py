@@ -35,7 +35,7 @@ class QueryEngine(EngineE4):
     def repo(self) -> CaptureStore:
         return self._repo
 
-    # ── Offline mode ────────────────────────────────────────────────────
+    # Offline storage
 
     def store(
         self,
@@ -72,7 +72,7 @@ class QueryEngine(EngineE4):
     def flow(self, capture_id: int, flow_id: int) -> Flow | None:
         return self._repo.fetch_flow(capture_id, flow_id)
 
-    # ── Distributed / correlation mode ──────────────────────────────────
+    # Distributed correlation storage
 
     def store_correlation(self, record: CorrelationRecord) -> int:
         """Persist one CorrelationRecord; returns its DB row id."""
