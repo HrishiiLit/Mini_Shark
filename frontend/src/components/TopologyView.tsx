@@ -12,6 +12,7 @@ export function TopologyView() {
     <div className="relative h-full min-h-0 overflow-hidden bg-[#F8FAFC]">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white to-transparent" />
       <SimulationBar />
+      <ClientsHUD />
       <Canvas className="h-full w-full" camera={{ position: [0.4, 2.7, 7.2], fov: 38 }} dpr={[1, 1.75]} gl={{ antialias: true }}>
         <color attach="background" args={['#F8FAFC']} />
         <fog attach="fog" args={['#F8FAFC', 14, 28]} />
@@ -62,21 +63,11 @@ function Scene() {
   const p2Connected = probes.probe2_connected || demoMode
 
   const activeClients = useMemo(() => {
-    if (demoMode) return clients.slice(0, clientCount)
-    if (probes.probe1_connected) {
-      return [
-        {
-          id: 0,
-          name: 'Linux Client (VM2)',
-          ip: probes.probe1_ip || '192.168.10.11',
-          probeBadge: 'Probe 1 · Ingress · LIVE',
-          os: 'Ubuntu Linux',
-          vm: 'VM 2 (Probe 1)',
-        },
-      ]
+    if (demoMode || probes.probe1_connected) {
+      return clients.slice(0, Math.max(1, clientCount))
     }
     return []
-  }, [demoMode, clientCount, clients, probes.probe1_connected, probes.probe1_ip])
+  }, [demoMode, clientCount, clients, probes.probe1_connected])
 
   const effectiveClientCount = Math.max(1, activeClients.length)
   const clientCurves = useMemo(
@@ -490,6 +481,63 @@ function FpsMeter() {
     }
   })
   return null
+}
+
+function ClientsHUD() {
+  const clientCount = useCaptureStore((s) => s.clientCount)
+  const clients = useCaptureStore((s) => s.clients)
+  const probes = useCaptureStore((s) => s.probesStatus)
+  const demoMode = useCaptureStore((s) => s.demoMode)
+  const filter = useCaptureStore((s) => s.filter)
+  const setFilter = useCaptureStore((s) => s.setFilter)
+
+  const activeClients = clients.slice(0, Math.max(1, clientCount))
+
+  return (
+    <div className="pointer-events-auto absolute top-16 left-3 z-30 flex flex-col gap-1.5 rounded-2xl border border-white/80 bg-white/92 p-2.5 shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur-md">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-1.5">
+        <span className="font-display text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          Traffic Sources
+        </span>
+        <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-600">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          {demoMode ? 'Simulated' : probes.probe1_connected ? 'Probe 1 Ingress' : 'Standby'}
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        {activeClients.map((c, i) => {
+          const isSelected = filter.includes(c.ip)
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setFilter(isSelected ? '' : `ip.src == ${c.ip}`)}
+              className={`flex items-center justify-between gap-3 rounded-xl px-2.5 py-1.5 text-left transition ${
+                isSelected
+                  ? 'border border-blue-400 bg-blue-50 text-blue-900 shadow-xs'
+                  : 'bg-slate-50/80 hover:bg-slate-100/90 text-slate-700'
+              }`}
+              title={`Click to filter packets for ${c.name} (${c.ip})`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 w-5 items-center justify-center rounded-lg bg-blue-600 font-mono text-[9px] font-bold text-white shadow-xs">
+                  C{i + 1}
+                </span>
+                <div>
+                  <div className="font-semibold text-[11px] leading-tight text-slate-800">{c.name}</div>
+                  <div className="font-mono text-[10px] text-slate-400">{c.ip}</div>
+                </div>
+              </div>
+              <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[9.5px] font-medium text-slate-500 border border-slate-200/60 shadow-xs">
+                {c.vm}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function Legend() {

@@ -4,26 +4,26 @@ import { useCaptureStore } from '../store/useCaptureStore'
 
 export function SimulationBar() {
   const demoMode = useCaptureStore((s) => s.demoMode)
-  const running  = useCaptureStore((s) => s.running)
+  const running = useCaptureStore((s) => s.running)
   const setDemoMode = useCaptureStore((s) => s.setDemoMode)
   const injectDropRate = useCaptureStore((s) => s.injectDropRate)
   const injectDelaySpike = useCaptureStore((s) => s.injectDelaySpike)
   const runDnsTest = useCaptureStore((s) => s.runDnsTest)
   const startLiveCapture = useCaptureStore((s) => s.startLiveCapture)
-  const stopLiveCapture  = useCaptureStore((s) => s.stopLiveCapture)
+  const stopLiveCapture = useCaptureStore((s) => s.stopLiveCapture)
   const clientCount = useCaptureStore((s) => s.clientCount)
   const setClientCount = useCaptureStore((s) => s.setClientCount)
   const probes = useCaptureStore((s) => s.probesStatus)
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-3 z-40 flex justify-center px-3">
-      <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-white/80 bg-white/92 p-1.5 shadow-[0_16px_48px_rgba(15,23,42,0.08)] backdrop-blur-md">
-        {/* Mode Toggle: Live Network vs Simulation */}
-        <div className="mr-1 flex items-center rounded-xl bg-slate-100 p-0.5 text-[11px] font-semibold text-slate-600">
+      <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/80 bg-white/95 p-1.5 shadow-[0_16px_48px_rgba(15,23,42,0.08)] backdrop-blur-md">
+        {/* Mode Toggle: Live Network vs Demo */}
+        <div className="flex items-center rounded-xl bg-slate-100 p-0.5 text-[11px] font-semibold text-slate-600">
           <button
             type="button"
             onClick={() => setDemoMode(false)}
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition ${
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${
               !demoMode
                 ? 'bg-white text-blue-700 shadow-sm'
                 : 'text-slate-500 hover:text-slate-800'
@@ -39,7 +39,7 @@ export function SimulationBar() {
           <button
             type="button"
             onClick={() => setDemoMode(true)}
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition ${
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${
               demoMode
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'text-slate-500 hover:text-slate-800'
@@ -50,68 +50,90 @@ export function SimulationBar() {
           </button>
         </div>
 
-        {/* Start / Stop Live Capture */}
-        {!demoMode && (
-          <>
+        {/* Live Capture Controls */}
+        {!demoMode ? (
+          <div className="flex items-center gap-2">
             {!running ? (
               <SimButton onClick={startLiveCapture} tone="blue">
                 <Play size={14} />
-                Start Capture
+                Start Live Stream
               </SimButton>
             ) : (
               <SimButton onClick={stopLiveCapture} tone="crimson">
                 <Square size={14} />
-                Stop Capture
+                Stop Live Stream
               </SimButton>
             )}
-          </>
-        )}
 
-        {/* Defense Test Case Buttons */}
-        <SimButton onClick={injectDropRate} tone="crimson">
-          <Zap size={14} />
-          Inject 5% Drop Rate
-        </SimButton>
-        <SimButton onClick={injectDelaySpike} tone="amber">
-          <Timer size={14} />
-          Inject 60ms Delay Spike
-        </SimButton>
-        <SimButton onClick={runDnsTest} tone="cyan">
-          <FlaskConical size={14} />
-          Run DNS Tunneling Test
-        </SimButton>
+            {/* Active Clients selector for Live View */}
+            <div className="flex items-center gap-1 border-l border-slate-200/80 pl-2">
+              <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500">
+                <Users size={12} />
+                Clients:
+              </span>
+              {[1, 2].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setClientCount(n)}
+                  className={`h-6 px-2 rounded-lg text-[11px] font-semibold transition ${
+                    clientCount === n
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                  title={`Display ${n} Client Node${n > 1 ? 's' : ''}`}
+                >
+                  {n === 1 ? '1 Client' : '2 Clients'}
+                </button>
+              ))}
+            </div>
 
-        {/* Dynamic Multi-Client Nodes Selector (active in demo mode) */}
-        {demoMode ? (
-          <div className="flex items-center gap-1 border-l border-slate-200/80 pl-2">
-            <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500">
-              <Users size={12} />
-              Clients:
-            </span>
-            {[1, 2, 3, 4].map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setClientCount(n)}
-                className={`h-6 w-6 rounded-lg text-[11px] font-semibold transition ${
-                  clientCount === n
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-                title={`Simulate with ${n} Client Node${n > 1 ? 's' : ''}`}
-              >
-                {n}
-              </button>
-            ))}
+            <div className="flex items-center gap-1.5 border-l border-slate-200/80 pl-2 text-[11px] font-medium text-slate-500">
+              <Wifi size={12} className={probes.total_connected > 0 ? 'text-emerald-500' : 'text-slate-400'} />
+              <span>
+                {probes.total_connected === 0
+                  ? 'Waiting for Probes...'
+                  : `${probes.total_connected} Probes Online`}
+              </span>
+            </div>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 border-l border-slate-200/80 pl-2 text-[11px] font-medium text-slate-500">
-            <Wifi size={12} className={probes.total_connected > 0 ? 'text-emerald-500' : 'text-slate-400'} />
-            <span>
-              {probes.total_connected === 0
-                ? 'Waiting for Linux VM probes...'
-                : `${probes.total_connected} VM Probe${probes.total_connected > 1 ? 's' : ''} Connected`}
-            </span>
+          /* Demo Simulation Controls (Only shown in Demo mode) */
+          <div className="flex items-center gap-1.5">
+            <SimButton onClick={injectDropRate} tone="crimson">
+              <Zap size={14} />
+              5% Drop Rate
+            </SimButton>
+            <SimButton onClick={injectDelaySpike} tone="amber">
+              <Timer size={14} />
+              60ms Delay
+            </SimButton>
+            <SimButton onClick={runDnsTest} tone="cyan">
+              <FlaskConical size={14} />
+              DNS Test
+            </SimButton>
+
+            <div className="flex items-center gap-1 border-l border-slate-200/80 pl-2">
+              <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500">
+                <Users size={12} />
+                Clients:
+              </span>
+              {[1, 2, 3, 4].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setClientCount(n)}
+                  className={`h-6 w-6 rounded-lg text-[11px] font-semibold transition ${
+                    clientCount === n
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                  title={`Simulate with ${n} Client Node${n > 1 ? 's' : ''}`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -140,7 +162,7 @@ function SimButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-[12px] font-medium transition ${cls}`}
+      className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[12px] font-medium transition ${cls}`}
     >
       {children}
     </button>

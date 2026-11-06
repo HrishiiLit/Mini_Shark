@@ -79,7 +79,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   frozenFlightId: null,
   running: false,
   demoMode: false,
-  clientCount: 1,
+  clientCount: 2,
   clients: DEFAULT_CLIENTS,
   probesStatus: {
     probe1_connected: false,
@@ -111,7 +111,14 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
     set({ clientCount: clamped })
   },
 
-  setProbesStatus: (status: ProbesStatus) => set({ probesStatus: status }),
+  setProbesStatus: (status: ProbesStatus) => {
+    const clientProbes = (status.active_clients || []).filter((p) => p.probe_id !== 2)
+    const detectedClients = Math.max(1, Math.min(DEFAULT_CLIENTS.length, clientProbes.length))
+    set((s) => ({
+      probesStatus: status,
+      clientCount: Math.max(s.clientCount, detectedClients >= 2 ? 2 : s.clientCount),
+    }))
+  },
 
   start: () => set({ running: true }),
   pause: () => set({ running: false }),
@@ -138,7 +145,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
 
     ;(async () => {
       try {
-        const res = await fetch(`${API}/captures/stream?iface=ens33`, {
+        const res = await fetch(`${API}/captures/stream`, {
           signal: controller.signal,
         })
         if (!res.ok || !res.body) return
@@ -400,12 +407,20 @@ if (typeof window !== 'undefined') {
             const kind: Flight['kind'] = isDrop ? 'drop' : isSlow ? 'slow' : 'normal'
 
             const state = useCaptureStore.getState()
-            const srcIp = msg.src_ip || state.probesStatus.probe1_ip || '192.168.10.11'
-
-            let clientIdx = state.clients.findIndex((c) => c.ip === srcIp)
-            if (clientIdx === -1) {
-              clientIdx = state.seq % state.clientCount
+            let clientIdx = 0
+            if (msg.client_id !== undefined) {
+              clientIdx = msg.client_id
+            } else if (msg.src_ip) {
+              const idx = state.clients.findIndex((c) => c.ip === msg.src_ip)
+              if (idx !== -1) clientIdx = idx
+            } else if (msg.probe_id && msg.probe_id !== 2) {
+              clientIdx = msg.probe_id === 1 ? 0 : 1
+            } else {
+              clientIdx = state.seq % Math.max(1, state.clientCount)
             }
+
+            const client = state.clients[clientIdx] || state.clients[0]
+            const srcIp = msg.src_ip || client.ip
 
             const id = state.seq
             const now = performance.now()

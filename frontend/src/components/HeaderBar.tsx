@@ -1,12 +1,10 @@
 import type { ReactNode } from 'react'
-import { Activity, Cpu, FlaskConical, MemoryStick, Radio } from 'lucide-react'
+import { Activity, Radio, Users } from 'lucide-react'
 import { useCaptureStore } from '../store/useCaptureStore'
 
 export function HeaderBar() {
   const filter = useCaptureStore((s) => s.filter)
   const setFilter = useCaptureStore((s) => s.setFilter)
-  const memoryMb = useCaptureStore((s) => s.memoryMb)
-  const fps = useCaptureStore((s) => s.fps)
   const clientCount = useCaptureStore((s) => s.clientCount)
   const probes = useCaptureStore((s) => s.probesStatus)
   const demoMode = useCaptureStore((s) => s.demoMode)
@@ -15,7 +13,7 @@ export function HeaderBar() {
   const p2Online = probes.probe2_connected || demoMode
 
   return (
-    <header className="sticky top-0 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200/80 bg-white/90 px-4 py-2 backdrop-blur-md">
+    <header className="sticky top-0 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200/80 bg-white/95 px-4 py-2 backdrop-blur-md">
       <div className="flex items-center gap-3">
         <Logo />
         <div>
@@ -24,53 +22,50 @@ export function HeaderBar() {
               Mini-Shark
             </h1>
             <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-medium tracking-wide text-white">
-              KLE Tech · Team 07
+              Team 07 · Multi-Point Observatory
             </span>
           </div>
-          <p className="text-[11px] tracking-wide text-slate-500">CSE-AI · 23ECNP301 · Multi-probe invariant correlation</p>
+          <p className="text-[11px] tracking-wide text-slate-500">Distributed Multi-Client Latency & Loss Tracing</p>
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-1.5">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-2">
+        {/* Connected Clients Pill */}
         <Pill
-          icon={<Radio size={12} />}
+          icon={<Users size={13} />}
+          label="Clients"
+          value={`${clientCount} Active Node${clientCount > 1 ? 's' : ''}`}
+          accent="blue"
+          live={p1Online}
+        />
+        {/* Probe 1 (Ingress) Pill */}
+        <Pill
+          icon={<Radio size={13} />}
           label="Ingress Probe"
           value={
             demoMode
               ? `Demo (${clientCount} Nodes)`
               : probes.probe1_connected
-                ? `● Connected (${probes.probe1_ip || 'VM2'})`
-                : '○ Disconnected / Waiting :9000'
+                ? `● Online (${probes.probe1_ip || 'Laptop 2'})`
+                : '○ Waiting :9000'
           }
           accent={p1Online ? 'blue' : 'slate'}
           live={p1Online}
         />
+        {/* Probe 2 (Egress) Pill */}
         <Pill
-          icon={<Radio size={12} />}
+          icon={<Radio size={13} />}
           label="Egress Probe"
           value={
             demoMode
-              ? 'Demo (VM4)'
+              ? 'Demo (Laptop 1)'
               : probes.probe2_connected
-                ? `● Connected (${probes.probe2_ip || 'VM4'})`
-                : '○ Disconnected / Waiting :9000'
+                ? `● Online (${probes.probe2_ip || 'Laptop 1'})`
+                : '○ Waiting :9000'
           }
           accent={p2Online ? 'teal' : 'slate'}
           live={p2Online}
         />
-        <Pill
-          icon={<Cpu size={12} />}
-          label="Correlation Hub"
-          value={`O(1) Hash Table · ${Math.round(fps)} FPS`}
-          accent="cyan"
-        />
-        <Pill
-          icon={<MemoryStick size={12} />}
-          label="Memory Usage"
-          value={`${memoryMb.toFixed(1)} MB / 65 MB Cap`}
-          accent="slate"
-        />
-        <Pill icon={<FlaskConical size={12} />} label="Unit Tests" value="144/144 Passing" accent="teal" />
       </div>
 
       <label className="relative block w-full max-w-[340px]">
@@ -79,7 +74,7 @@ export function HeaderBar() {
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="e.g. client == 2 or ip.src == 192.168.10.12 or tcp"
+          placeholder="Filter: client == 1 or ip.src == 10.108.157.186"
           className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 font-mono text-[12px] text-slate-800 outline-none ring-sky-400/40 transition focus:border-sky-400 focus:bg-white focus:ring-2"
         />
       </label>
