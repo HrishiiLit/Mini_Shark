@@ -276,9 +276,17 @@ class CorrelationHub:
             p for p in self.connected_probes.values()
             if (now - p.get("last_seen", 0)) < 30.0
         ]
-        client_probes = [p for p in active if p["probe_id"] != self._probe2_id]
+        # Deduplicate by probe_id, keeping most active connection
+        by_probe_id: dict[int, dict[str, Any]] = {}
+        for p in active:
+            pid = p["probe_id"]
+            if pid not in by_probe_id or p.get("records", 0) >= by_probe_id[pid].get("records", 0):
+                by_probe_id[pid] = p
+
+        deduped_active = list(by_probe_id.values())
+        client_probes = [p for p in deduped_active if p["probe_id"] != self._probe2_id]
         p1 = client_probes[0] if client_probes else None
-        p2 = next((p for p in active if p["probe_id"] == self._probe2_id), None)
+        p2 = next((p for p in deduped_active if p["probe_id"] == self._probe2_id), None)
 
         active_list = [
             {
@@ -287,7 +295,7 @@ class CorrelationHub:
                 "records": p.get("records", 0),
                 "connected_at": p.get("connected_at", now),
             }
-            for p in active
+            for p in deduped_active
         ]
         return {
             "probe1_connected": p1 is not None,
@@ -295,7 +303,7 @@ class CorrelationHub:
             "probe2_connected": p2 is not None,
             "probe2_ip": p2["ip"] if p2 else None,
             "active_clients": active_list,
-            "total_connected": len(active_list),
+            "total_connected": len(deduped_active),
         }
 
     # Memory management & record creation

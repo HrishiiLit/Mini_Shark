@@ -120,6 +120,14 @@ def get_hub() -> CorrelationHub:
             delay_ms = round(rec.delay_ns / 1_000_000, 3) if rec.delay_ns is not None else None
             client_probe_id = getattr(rec, "client_probe_id", 1)
             client_id = 0 if client_probe_id == 1 else 1
+
+            client_ip = None
+            if _hub and hasattr(_hub, "connected_probes"):
+                for p in _hub.connected_probes.values():
+                    if p.get("probe_id") == client_probe_id:
+                        client_ip = p.get("ip")
+                        break
+
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -134,6 +142,7 @@ def get_hub() -> CorrelationHub:
                         "probe2_seq":  rec.probe2_seq,
                         "probe_id":    client_probe_id,
                         "client_id":   client_id,
+                        "src_ip":      client_ip,
                         "flags":       rec.flags,
                     }))
             except RuntimeError:

@@ -135,12 +135,12 @@ function Scene() {
         <ProbeNode
           position={SERVER_POS}
           color="#059669"
-          title="Server Node (VM4)"
-          subtitle={probes.probe2_ip || '192.168.20.20'}
+          title="Server Node (VM1)"
+          subtitle={probes.probe2_ip && probes.probe2_ip !== '127.0.0.1' ? probes.probe2_ip : '192.168.130.129'}
           badge="Probe 2 · Egress · LIVE"
           tone="green"
           rippleKey={serverRipple}
-          onClick={() => setFilter(`ip.dst == ${probes.probe2_ip || '192.168.20.20'}`)}
+          onClick={() => setFilter(`ip.dst == ${probes.probe2_ip && probes.probe2_ip !== '127.0.0.1' ? probes.probe2_ip : '192.168.130.129'}`)}
         />
       ) : (
         <ProbeNode
@@ -148,7 +148,7 @@ function Scene() {
           color="#94A3B8"
           title="Awaiting Server Probe"
           subtitle="Disconnected · Waiting on :9000"
-          badge="Probe 2 · Standby (VM4)"
+          badge="Probe 2 · Standby (VM1)"
           tone="slate"
           onClick={() => setFilter('')}
         />
@@ -491,6 +491,9 @@ function ClientsHUD() {
   const filter = useCaptureStore((s) => s.filter)
   const setFilter = useCaptureStore((s) => s.setFilter)
 
+  const clientProbes = (probes.active_clients || []).filter((p) => p.probe_id !== 2)
+  const uniqueProbeIds = Array.from(new Set(clientProbes.map((p) => p.probe_id)))
+  const ingressCount = uniqueProbeIds.length
   const activeClients = clients.slice(0, Math.max(1, clientCount))
 
   return (
@@ -501,7 +504,13 @@ function ClientsHUD() {
         </span>
         <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-600">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          {demoMode ? 'Simulated' : probes.probe1_connected ? 'Probe 1 Ingress' : 'Standby'}
+          {demoMode
+            ? 'Simulated'
+            : ingressCount > 1
+              ? `${ingressCount} Ingress Probes`
+              : probes.probe1_connected
+                ? 'Probe Ingress Active'
+                : 'Standby'}
         </span>
       </div>
 

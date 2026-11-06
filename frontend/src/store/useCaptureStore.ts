@@ -112,12 +112,43 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   },
 
   setProbesStatus: (status: ProbesStatus) => {
-    const clientProbes = (status.active_clients || []).filter((p) => p.probe_id !== 2)
-    const detectedClients = Math.max(1, Math.min(DEFAULT_CLIENTS.length, clientProbes.length))
-    set((s) => ({
-      probesStatus: status,
-      clientCount: Math.max(s.clientCount, detectedClients >= 2 ? 2 : s.clientCount),
-    }))
+    // Collect unique client probes (excluding probe 2 which is egress)
+    const clientProbesMap = new Map<number, { ip: string; probe_id: number; records: number }>()
+    for (const p of status.active_clients || []) {
+      if (p.probe_id !== 2) {
+        if (!clientProbesMap.has(p.probe_id) || (p.records ?? 0) >= (clientProbesMap.get(p.probe_id)?.records ?? 0)) {
+          clientProbesMap.set(p.probe_id, p)
+        }
+      }
+    }
+    const clientProbes = Array.from(clientProbesMap.values())
+    const detectedClients = clientProbes.length
+
+    set((s) => {
+      // Dynamically update client definitions with actual probe IPs and probe IDs
+      const updatedClients = s.clients.map((c, i) => {
+        if (i < clientProbes.length) {
+          const cp = clientProbes[i]
+          return {
+            ...c,
+            ip: cp.ip,
+            name: `VM2 (Client ${i + 1})`,
+            probeBadge: `Probe ${cp.probe_id} · Ingress`,
+            vm: `VM2 (Probe ${cp.probe_id})`,
+          }
+        }
+        return c
+      })
+
+      // If multiple client probes are online, auto-expand clientCount so both are displayed
+      const newClientCount = detectedClients >= 2 ? Math.max(s.clientCount, detectedClients) : s.clientCount
+
+      return {
+        probesStatus: status,
+        clients: updatedClients,
+        clientCount: newClientCount,
+      }
+    })
   },
 
   start: () => set({ running: true }),
@@ -407,16 +438,26 @@ if (typeof window !== 'undefined') {
             const kind: Flight['kind'] = isDrop ? 'drop' : isSlow ? 'slow' : 'normal'
 
             const state = useCaptureStore.getState()
+            const activeClientProbes = (state.probesStatus.active_clients || []).filter((p) => p.probe_id !== 2)
+            const uniqueProbes = Array.from(new Set(activeClientProbes.map((p) => p.probe_id)))
+
             let clientIdx = 0
-            if (msg.client_id !== undefined) {
+            if (uniqueProbes.length <= 1) {
+              // If only one client probe is connected, route all events to active Client 1
+              clientIdx = 0
+            } else if (msg.client_id !== undefined && msg.client_id < state.clientCount) {
               clientIdx = msg.client_id
             } else if (msg.src_ip) {
               const idx = state.clients.findIndex((c) => c.ip === msg.src_ip)
-              if (idx !== -1) clientIdx = idx
+              if (idx !== -1 && idx < state.clientCount) clientIdx = idx
             } else if (msg.probe_id && msg.probe_id !== 2) {
               clientIdx = msg.probe_id === 1 ? 0 : 1
             } else {
               clientIdx = state.seq % Math.max(1, state.clientCount)
+            }
+
+            if (clientIdx >= state.clientCount) {
+              clientIdx = 0
             }
 
             const client = state.clients[clientIdx] || state.clients[0]

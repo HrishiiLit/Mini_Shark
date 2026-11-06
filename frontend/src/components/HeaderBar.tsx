@@ -12,6 +12,10 @@ export function HeaderBar() {
   const p1Online = probes.probe1_connected || demoMode
   const p2Online = probes.probe2_connected || demoMode
 
+  const clientProbes = (probes.active_clients || []).filter((p) => p.probe_id !== 2)
+  const uniqueProbeIds = Array.from(new Set(clientProbes.map((p) => p.probe_id)))
+  const ingressCount = uniqueProbeIds.length
+
   return (
     <header className="sticky top-0 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200/80 bg-white/95 px-4 py-2 backdrop-blur-md">
       <div className="flex items-center gap-3">
@@ -34,7 +38,13 @@ export function HeaderBar() {
         <Pill
           icon={<Users size={13} />}
           label="Clients"
-          value={`${clientCount} Active Node${clientCount > 1 ? 's' : ''}`}
+          value={
+            demoMode
+              ? `Demo (${clientCount} Nodes)`
+              : ingressCount >= 2
+                ? `${ingressCount} Active Nodes`
+                : `${clientCount} Active Node${clientCount > 1 ? 's' : ''}`
+          }
           accent="blue"
           live={p1Online}
         />
@@ -45,9 +55,11 @@ export function HeaderBar() {
           value={
             demoMode
               ? `Demo (${clientCount} Nodes)`
-              : probes.probe1_connected
-                ? `● Online (${probes.probe1_ip || 'Laptop 2'})`
-                : '○ Waiting :9000'
+              : ingressCount > 1
+                ? `● Online (${ingressCount} Probes · VM2)`
+                : probes.probe1_connected
+                  ? `● Online (${probes.probe1_ip || 'VM2'})`
+                  : '○ Waiting :9000'
           }
           accent={p1Online ? 'blue' : 'slate'}
           live={p1Online}
@@ -58,9 +70,9 @@ export function HeaderBar() {
           label="Egress Probe"
           value={
             demoMode
-              ? 'Demo (Laptop 1)'
+              ? 'Demo (VM1)'
               : probes.probe2_connected
-                ? `● Online (${probes.probe2_ip || 'Laptop 1'})`
+                ? `● Online (${probes.probe2_ip === '127.0.0.1' ? 'VM1 / 192.168.130.129' : (probes.probe2_ip || 'VM1')})`
                 : '○ Waiting :9000'
           }
           accent={p2Online ? 'teal' : 'slate'}
