@@ -1,9 +1,6 @@
 import {
   Bookmark,
   Clock,
-  Eye,
-  Globe,
-  Layers,
   Pause,
   Play,
   Trash2,
@@ -18,8 +15,6 @@ export function HeaderBar() {
   const start = useCaptureStore((s) => s.start)
   const pause = useCaptureStore((s) => s.pause)
   const clearPackets = useCaptureStore((s) => s.clearPackets)
-  const viewMode = useCaptureStore((s) => s.viewMode)
-  const setViewMode = useCaptureStore((s) => s.setViewMode)
   const autoScroll = useCaptureStore((s) => s.autoScroll)
   const setAutoScroll = useCaptureStore((s) => s.setAutoScroll)
   const probes = useCaptureStore((s) => s.probesStatus)
@@ -90,46 +85,6 @@ export function HeaderBar() {
             online={p2Online}
             color="indigo"
           />
-        </div>
-
-        {/* View Mode Switcher Tabs */}
-        <div className="flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[11px] font-medium shadow-inner">
-          <button
-            type="button"
-            onClick={() => setViewMode('wireshark')}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1 transition ${
-              viewMode === 'wireshark'
-                ? 'bg-white font-semibold text-[#0B5ED7] shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Layers size={12} />
-            <span>Wireshark 3-Pane</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('observatory')}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1 transition ${
-              viewMode === 'observatory'
-                ? 'bg-white font-semibold text-[#0B5ED7] shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Globe size={12} />
-            <span>3D Observatory</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('split')}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1 transition ${
-              viewMode === 'split'
-                ? 'bg-white font-semibold text-[#0B5ED7] shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Eye size={12} />
-            <span>Split View</span>
-          </button>
         </div>
       </div>
 
