@@ -1,7 +1,7 @@
 import type { ByteKind, Packet, Protocol, ProtocolLayer } from '../types'
 
-const CLIENT_IP = '192.168.10.11'
-const SERVER_IP = '192.168.20.20'
+const CLIENT_IP = '192.168.130.128'
+const SERVER_IP = '192.168.130.129'
 const CLIENT_MAC = [0x00, 0x0c, 0x29, 0xa4, 0x10, 0x11]
 const SERVER_MAC = [0x00, 0x0c, 0x29, 0xb8, 0x20, 0x20]
 const ROUTER_MAC = [0x00, 0x0c, 0x29, 0x7e, 0x00, 0x01]
@@ -72,10 +72,11 @@ export interface FrameSpec {
 export function buildPacket(spec: FrameSpec): Packet {
   const srcIp = spec.srcIp || CLIENT_IP
   const dstIp = spec.dstIp || SERVER_IP
-  const protoNum = spec.protocol === 'ICMP' ? 1 : spec.protocol === 'TCP' ? 6 : 17
+  const isTcpLike = spec.protocol === 'TCP' || spec.protocol === 'HTTP'
+  const protoNum = spec.protocol === 'ICMP' ? 1 : isTcpLike ? 6 : 17
   const payload = spec.payload
   const l4Len =
-    spec.protocol === 'TCP' ? 20 : spec.protocol === 'ICMP' ? 8 : spec.protocol === 'DNS' ? 12 : 8
+    isTcpLike ? 20 : spec.protocol === 'ICMP' ? 8 : spec.protocol === 'DNS' ? 12 : 8
   const ipLen = 20 + l4Len + payload.length
   const total = 14 + ipLen
 
@@ -125,7 +126,7 @@ export function buildPacket(spec: FrameSpec): Packet {
   mark(26, 8, 'invariant')
 
   let l4 = 34
-  if (spec.protocol === 'TCP') {
+  if (isTcpLike) {
     const seq = spec.tcpSeq ?? 0
     bytes.splice(34, 2, ...u16(spec.srcPort))
     bytes.splice(36, 2, ...u16(spec.dstPort))
@@ -213,16 +214,16 @@ export function buildPacket(spec: FrameSpec): Packet {
         { label: 'Destination', value: dstIp, kind: 'invariant' },
       ],
     },
-    spec.protocol === 'TCP'
+    isTcpLike
       ? {
-          id: 'tcp',
-          title: 'Transmission Control Protocol',
-          summary: `Src Port: ${spec.srcPort}, Dst Port: ${spec.dstPort}, Seq: ${spec.tcpSeq}`,
+          id: spec.protocol.toLowerCase(),
+          title: spec.protocol === 'HTTP' ? 'Hypertext Transfer Protocol' : 'Transmission Control Protocol',
+          summary: spec.protocol === 'HTTP' ? `HTTP GET / · Dst Port ${spec.dstPort}` : `Src Port: ${spec.srcPort}, Dst Port: ${spec.dstPort}, Seq: ${spec.tcpSeq}`,
           kind: 'invariant',
           fields: [
             { label: 'Source Port', value: String(spec.srcPort), kind: 'invariant' },
             { label: 'Destination Port', value: String(spec.dstPort), kind: 'invariant' },
-            { label: 'Sequence Number', value: String(spec.tcpSeq), kind: 'invariant' },
+            { label: 'Sequence Number', value: String(spec.tcpSeq ?? 0), kind: 'invariant' },
             { label: 'Flags', value: 'PSH, ACK' },
             { label: 'Window', value: '8192' },
             { label: 'Checksum', value: '0x0000  [MUTATING]', kind: 'mutating' },

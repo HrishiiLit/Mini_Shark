@@ -89,15 +89,18 @@ function formatTime(us: number) {
 }
 
 function StatusCell({ packet }: { packet: Packet }) {
+  const dropDetail = packet.srcIp
+    ? `❌ Dropped on Link: ${packet.srcIp} → ${packet.dstIp || '192.168.130.129'}`
+    : '❌ Dropped on Link: Ingress → Server Hub (Timeout 500ms)'
   const map: Record<PacketStatus, string> = {
     matched: `✅ Matched (ΔT = ${packet.deltaTms?.toFixed(1) ?? '—'}ms)`,
-    dropped: '❌ Dropped on Wire (Timeout 500ms)',
+    dropped: dropDetail,
     'high-latency': `⚠️ High Latency (ΔT = ${packet.deltaTms?.toFixed(1) ?? '—'}ms)`,
     'in-flight': '◎ In-flight · correlating',
   }
   const color: Record<PacketStatus, string> = {
     matched: 'text-emerald-700',
-    dropped: 'text-red-700',
+    dropped: 'text-red-700 font-medium',
     'high-latency': 'text-amber-700',
     'in-flight': 'text-sky-700',
   }
@@ -110,6 +113,7 @@ function ProtoTag({ protocol }: { protocol: Protocol }) {
     UDP: 'bg-violet-100 text-violet-800',
     DNS: 'bg-sky-100 text-sky-800',
     ICMP: 'bg-emerald-100 text-emerald-800',
+    HTTP: 'bg-amber-100 text-amber-800',
   }
-  return <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${cls[protocol]}`}>{protocol}</span>
+  return <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${cls[protocol] || 'bg-slate-100 text-slate-800'}`}>{protocol}</span>
 }

@@ -1,4 +1,4 @@
-export type Protocol = 'TCP' | 'UDP' | 'DNS' | 'ICMP'
+export type Protocol = 'TCP' | 'UDP' | 'DNS' | 'ICMP' | 'HTTP'
 export type PacketStatus = 'matched' | 'dropped' | 'high-latency' | 'in-flight'
 
 export type ByteKind = 'invariant' | 'mutating' | 'payload'

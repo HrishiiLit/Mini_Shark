@@ -455,7 +455,7 @@ function PacketParticle({ flight, totalClients }: { flight: Flight; totalClients
       </group>
       {dropping && (
         <Html center distanceFactor={8} zIndexRange={[8, 0]} occlude={false} pointerEvents="none" position={[0, 0.32, 0]}>
-          <div className="ms-drop">[SILENT DROP: Hash {flight.hash64.slice(0, 8)}… — Link Loss]</div>
+          <div className="ms-drop">[SILENT DROP: Hash {flight.hash64.slice(0, 8)}… — Link Loss: Client {clientIdx + 1} → Hub]</div>
         </Html>
       )}
       {frozen && flight.kind !== 'drop' && (

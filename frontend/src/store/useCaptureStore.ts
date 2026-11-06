@@ -77,9 +77,9 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   flights: [],
   selectedId: null,
   frozenFlightId: null,
-  running: false,
+  running: true,
   demoMode: false,
-  clientCount: 1,
+  clientCount: 2,
   clients: DEFAULT_CLIENTS,
   probesStatus: {
     probe1_connected: false,
@@ -129,19 +129,20 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
       const updatedClients = s.clients.map((c, i) => {
         if (i < clientProbes.length) {
           const cp = clientProbes[i]
+          const isArch = cp.ip.startsWith('10.108.') || cp.probe_id === 3
           return {
             ...c,
             ip: cp.ip,
-            name: `VM2 (Client ${i + 1})`,
-            probeBadge: `Probe ${cp.probe_id} · Ingress`,
-            vm: `VM2 (Probe ${cp.probe_id})`,
+            name: isArch ? 'Laptop 2 (Arch Host)' : `w2 (Client ${i + 1})`,
+            probeBadge: `Probe ${cp.probe_id} · Ingress (${isArch ? 'wlo1' : 'VMnet1'})`,
+            vm: isArch ? 'Arch Linux Host' : 'Laptop 1 (VM2)',
           }
         }
         return c
       })
 
-      // In live network mode: reflect the actual number of connected client probes
-      const newClientCount = !s.demoMode && detectedClients > 0 ? detectedClients : s.clientCount
+      // In live network mode: reflect the actual number of connected client probes (minimum 2 for multi-client view)
+      const newClientCount = !s.demoMode && detectedClients > 0 ? Math.max(2, detectedClients) : s.clientCount
 
       return {
         probesStatus: status,
@@ -494,6 +495,7 @@ if (typeof window !== 'undefined') {
                   ? `fp: ${msg.fingerprint}`
                   : undefined,
               srcIp,
+              dstIp: msg.dst_ip || '192.168.130.129',
               clientId: clientIdx,
               hash64: msg.fingerprint || undefined,
             })
