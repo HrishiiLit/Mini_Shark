@@ -38,6 +38,11 @@ interface CaptureState {
   lastDropHash: string | null
   lastDropAt: number
   wsConnected: boolean
+  viewMode: 'wireshark' | 'observatory' | 'split'
+  autoScroll: boolean
+  setViewMode: (mode: 'wireshark' | 'observatory' | 'split') => void
+  setAutoScroll: (enabled: boolean) => void
+  clearPackets: () => void
   setDemoMode: (enabled: boolean) => void
   setClientCount: (count: number) => void
   start: () => void
@@ -101,6 +106,11 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   lastDropHash: null,
   lastDropAt: 0,
   wsConnected: false,
+  viewMode: 'wireshark',
+  autoScroll: true,
+  setViewMode: (viewMode) => set({ viewMode }),
+  setAutoScroll: (autoScroll) => set({ autoScroll }),
+  clearPackets: () => set({ packets: [], flights: [], selectedId: null, seq: 1 }),
 
   setDemoMode: (enabled: boolean) => {
     set({ demoMode: enabled, running: enabled })
