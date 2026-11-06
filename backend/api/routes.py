@@ -278,6 +278,7 @@ async def websocket_live(ws: WebSocket) -> None:
             # Push a metrics snapshot every second
             stats = get_engine().correlation_stats()
             recent_alerts = get_engine().alerts(limit=5)
+            probes = _get_probes_status(get_hub())
             await ws.send_text(json.dumps({
                 "type": "metrics",
                 "timestamp": time.time(),
