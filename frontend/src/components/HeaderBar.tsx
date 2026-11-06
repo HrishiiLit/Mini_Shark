@@ -101,7 +101,7 @@ export function HeaderBar() {
         <Pill
           icon={<FlaskConical size={13} />}
           label="Tests"
-          value="145/145 Passing"
+          value="150/150 Passing"
           accent="teal"
           live
         />
