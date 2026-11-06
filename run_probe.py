@@ -108,24 +108,36 @@ def run_probe(
                 # - Port 8001: FastAPI REST API & live WebSocket
                 # - Port 5173: Frontend Vite dev server
                 # - Port 22:   SSH
-                # - Link-local multicast/broadcast noise (SSDP, mDNS, IGMP)
+                # - Link-local multicast/broadcast noise (mDNS: 5353, LLMNR: 5355, SSDP: 1900, NetBIOS: 137/138, NTP: 123)
+                # - Generic external browser HTTPS (port 443) unless explicitly requested
                 is_infra = False
                 for layer in decoded.layers:
                     if layer.name in ("TCP", "UDP"):
                         sport = layer.fields.get("src_port")
                         dport = layer.fields.get("dst_port")
-                        if sport in (port, 8001, 5173, 22) or dport in (port, 8001, 5173, 22):
+                        noisy_ports = (port, 8001, 5173, 22, 5353, 5355, 1900, 137, 138, 123)
+                        if sport in noisy_ports or dport in noisy_ports:
+                            is_infra = True
+                            break
+                        # Filter browser HTTPS (443) to external websites unless user specifically requested 443/https
+                        if (sport == 443 or dport == 443) and not ("443" in bpf_filter.lower() or "https" in bpf_filter.lower()):
                             is_infra = True
                             break
                     if layer.name == "IPv4":
-                        dst = str(layer.fields.get("dst_ip", ""))
+                        dst = str(layer.fields.get("dst") or layer.fields.get("dst_ip") or "")
+                        src = str(layer.fields.get("src") or layer.fields.get("src_ip") or "")
                         if dst == "255.255.255.255" or dst.startswith("224.") or dst.startswith("239."):
+                            is_infra = True
+                            break
+                    if layer.name == "IPv6":
+                        dst = str(layer.fields.get("dst") or "")
+                        if dst.startswith("ff") or dst.startswith("fe80"):
                             is_infra = True
                             break
                 if is_infra:
                     continue
 
-                # Protocol post-filtering
+                # Protocol and Host post-filtering
                 if bpf_filter:
                     filt = bpf_filter.strip().lower()
                     layer_names = [l.name.lower() for l in decoded.layers]
@@ -137,6 +149,25 @@ def run_probe(
                         continue
                     if filt in ("dns",) and "dns" not in layer_names:
                         continue
+                    if filt in ("http",) and "http" not in layer_names:
+                        # Check if any TCP port is 80, 8080, or 8000
+                        has_http_port = any(
+                            l.fields.get("src_port") in (80, 8080, 8000) or l.fields.get("dst_port") in (80, 8080, 8000)
+                            for l in decoded.layers if l.name == "TCP"
+                        )
+                        if not has_http_port:
+                            continue
+                    if "host " in filt or any(c.isdigit() for c in filt):
+                        target_ip = filt.replace("host ", "").strip()
+                        ips = [
+                            str(l.fields.get("src") or "")
+                            for l in decoded.layers if l.name in ("IPv4", "IPv6")
+                        ] + [
+                            str(l.fields.get("dst") or "")
+                            for l in decoded.layers if l.name in ("IPv4", "IPv6")
+                        ]
+                        if target_ip not in ips:
+                            continue
 
                 is_frag = any(
                     layer.fields.get("fragment")

@@ -163,7 +163,21 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   },
 
   start: () => set({ running: true }),
-  pause: () => set({ running: false }),
+  pause: () => {
+    // 1. Abort active SSE fetch stream if running
+    const existingAbort = (window as any).__miniSharkAbort as AbortController | null
+    if (existingAbort) {
+      existingAbort.abort()
+      ;(window as any).__miniSharkAbort = null
+    }
+    // 2. Stop server-side sniff session if registered
+    const sessionId = (window as any).__miniSharkSessionId
+    if (sessionId) {
+      fetch(`${API}/captures/stream/stop?session_id=${sessionId}`).catch(() => {})
+      ;(window as any).__miniSharkSessionId = null
+    }
+    set({ running: false })
+  },
 
   startLiveCapture: () => {
     const state = useCaptureStore.getState()
@@ -443,32 +457,28 @@ if (typeof window !== 'undefined') {
 
           // 2. Real-time correlation events from active probe daemons
           if (msg.type === 'correlation') {
-            const isDrop = msg.match_state?.includes('unmatched')
+            const state = useCaptureStore.getState()
+            // Stop button: if paused, do not capture or process incoming packets
+            if (!state.running) return
+
+            // Ignore server-only background traffic (probe2_only)
+            if (msg.match_state === 'probe2_only') return
+
+            const isDrop = msg.match_state === 'unmatched'
             const isSlow = msg.delay_ms != null && Number(msg.delay_ms) > 20
             const status: Packet['status'] = isDrop ? 'dropped' : isSlow ? 'high-latency' : 'matched'
             const kind: Flight['kind'] = isDrop ? 'drop' : isSlow ? 'slow' : 'normal'
 
-            const state = useCaptureStore.getState()
-            const activeClientProbes = (state.probesStatus.active_clients || []).filter((p) => p.probe_id !== 2)
-            const uniqueProbes = Array.from(new Set(activeClientProbes.map((p) => p.probe_id)))
-
+            // Accurate client attribution:
+            // Probe 3 or Arch Linux IP (10.108.157.186) -> Client 2 (id: 1)
+            // Probe 1 or VM2 IP (192.168.130.128) -> Client 1 (id: 0)
             let clientIdx = 0
-            if (uniqueProbes.length <= 1) {
-              // If only one client probe is connected, route all events to active Client 1
+            if (msg.src_ip === '10.108.157.186' || msg.probe_id === 3) {
+              clientIdx = 1
+            } else if (msg.src_ip === '192.168.130.128' || msg.probe_id === 1) {
               clientIdx = 0
             } else if (msg.client_id !== undefined && msg.client_id < state.clientCount) {
               clientIdx = msg.client_id
-            } else if (msg.src_ip) {
-              const idx = state.clients.findIndex((c) => c.ip === msg.src_ip)
-              if (idx !== -1 && idx < state.clientCount) clientIdx = idx
-            } else if (msg.probe_id && msg.probe_id !== 2) {
-              clientIdx = msg.probe_id === 1 ? 0 : 1
-            } else {
-              clientIdx = state.seq % Math.max(1, state.clientCount)
-            }
-
-            if (clientIdx >= state.clientCount) {
-              clientIdx = 0
             }
 
             const client = state.clients[clientIdx] || state.clients[0]
@@ -487,6 +497,13 @@ if (typeof window !== 'undefined') {
                 ? 100000 + msg.probe1_seq * 1460
                 : undefined
 
+            const clientLabel = clientIdx === 1 ? 'Arch Linux Host (Probe 3)' : 'VM2 Client (Probe 1)'
+            const dropNote = isDrop
+              ? `Dropped on Wire: ${clientLabel} ──✖──> Server Hub (Probe 2)`
+              : msg.fingerprint
+                ? `fp: ${msg.fingerprint}`
+                : undefined
+
             const packet = buildPacket({
               id,
               timeUs: msg.t1_ns ? Math.round(msg.t1_ns / 1000) : 1_704_000_000_000_000 + id * 97_331,
@@ -499,11 +516,7 @@ if (typeof window !== 'undefined') {
               payload: httpPayload(),
               status,
               deltaTms,
-              note: isDrop
-                ? `Silent drop on wire (timeout 500ms)`
-                : msg.fingerprint
-                  ? `fp: ${msg.fingerprint}`
-                  : undefined,
+              note: dropNote,
               srcIp,
               dstIp: msg.dst_ip || '192.168.130.129',
               clientId: clientIdx,
