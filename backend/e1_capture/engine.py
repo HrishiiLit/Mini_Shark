@@ -20,7 +20,12 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
 
-import dpkt
+try:
+    import dpkt
+    _DPKT_ERRORS: tuple[type[Exception], ...] = (dpkt.dpkt.Error, ValueError, struct.error, OSError)
+except ImportError:
+    dpkt = None  # type: ignore
+    _DPKT_ERRORS = (ValueError, struct.error, OSError)
 
 from backend.errors import CorruptCaptureError, UnsupportedFormatError
 from backend.interfaces import EngineE1
@@ -40,7 +45,7 @@ _RECORD_HEADER_LEN = 16
 _MAX_RECORD_LEN = 1 << 26  # 64 MiB sanity limit for a single packet
 
 # Errors dpkt can raise while reading a damaged PCAPNG file.
-_DPKT_ERRORS = (dpkt.dpkt.Error, ValueError, struct.error, OSError)
+# _DPKT_ERRORS defined above
 
 
 class CaptureLoader(EngineE1):
