@@ -103,6 +103,32 @@ def run_probe(
             for pkt in raw_pkts:
                 decoded = dissector.dissect_one(pkt)
 
+                # Ignore probe telemetry traffic (port 9000), backend API/WS traffic (port 8001), and SSH (port 22)
+                # to prevent positive feedback loops and management traffic flooding
+                is_infra = False
+                for layer in decoded.layers:
+                    if layer.name in ("TCP", "UDP"):
+                        sport = layer.fields.get("src_port")
+                        dport = layer.fields.get("dst_port")
+                        if sport in (port, 8001, 22) or dport in (port, 8001, 22):
+                            is_infra = True
+                            break
+                if is_infra:
+                    continue
+
+                # Protocol post-filtering
+                if bpf_filter:
+                    filt = bpf_filter.strip().lower()
+                    layer_names = [l.name.lower() for l in decoded.layers]
+                    if filt in ("icmp", "ping") and "icmp" not in layer_names and "icmpv6" not in layer_names:
+                        continue
+                    if filt in ("tcp",) and "tcp" not in layer_names:
+                        continue
+                    if filt in ("udp",) and "udp" not in layer_names:
+                        continue
+                    if filt in ("dns",) and "dns" not in layer_names:
+                        continue
+
                 is_frag = any(
                     layer.fields.get("fragment")
                     for layer in decoded.layers
