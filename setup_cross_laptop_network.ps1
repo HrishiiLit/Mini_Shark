@@ -5,8 +5,12 @@ Write-Host "====================================================================
 Write-Host " Mini-Shark: Setting up Port Forwarding and Firewall for Laptop 2" -ForegroundColor Cyan
 Write-Host "=====================================================================" -ForegroundColor Cyan
 
+# 0. Set Wi-Fi to Private Network
+Write-Host "`n[1/6] Setting Wi-Fi network category to Private..." -ForegroundColor Yellow
+Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private -ErrorAction SilentlyContinue
+
 # 1. Forward Windows port 2222 -> VM1 SSH port 22
-Write-Host "`n[1/5] Forwarding Port 2222 (SSH) -> 192.168.130.129:22..." -ForegroundColor Yellow
+Write-Host "[2/6] Forwarding Port 2222 (SSH) -> 192.168.130.129:22..." -ForegroundColor Yellow
 netsh interface portproxy add v4tov4 listenport=2222 listenaddress=0.0.0.0 connectport=22 connectaddress=192.168.130.129
 
 # 2. Forward E3 Hub port 9000 -> VM1 port 9000
@@ -23,6 +27,7 @@ netsh advfirewall firewall add rule name="MiniShark SSH" dir=in action=allow pro
 netsh advfirewall firewall add rule name="MiniShark E3 Hub" dir=in action=allow protocol=TCP localport=9000
 netsh advfirewall firewall add rule name="MiniShark API" dir=in action=allow protocol=TCP localport=8001
 netsh advfirewall firewall add rule name="MiniShark Dashboard" dir=in action=allow protocol=TCP localport=5173
+netsh advfirewall firewall add rule name="MiniShark ICMP Ping" dir=in action=allow protocol=icmpv4:8,any
 
 # 5. Display Configuration
 Write-Host "`n[5/5] Current Port Forwarding Table:" -ForegroundColor Green

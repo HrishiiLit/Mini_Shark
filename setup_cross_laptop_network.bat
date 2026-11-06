@@ -7,8 +7,12 @@ echo  Mini-Shark: Setting up Port Forwarding and Firewall for Laptop 2
 echo =====================================================================
 echo.
 
+:: 0. Set Wi-Fi to Private Network (Enables Local Discovery)
+echo [1/7] Switching Wi-Fi profile from Public to Private...
+powershell -Command "Set-NetConnectionProfile -InterfaceAlias 'Wi-Fi' -NetworkCategory Private"
+
 :: 1. Forward Windows port 2222 -> VM1 SSH port 22
-echo [1/6] Forwarding Port 2222 (SSH) to VM1 (192.168.130.129:22)...
+echo [2/7] Forwarding Port 2222 (SSH) to VM1 (192.168.130.129:22)...
 netsh interface portproxy add v4tov4 listenport=2222 listenaddress=0.0.0.0 connectport=22 connectaddress=192.168.130.129
 
 :: 2. Forward E3 Hub port 9000 -> VM1 port 9000
@@ -25,6 +29,7 @@ netsh advfirewall firewall add rule name="MiniShark SSH" dir=in action=allow pro
 netsh advfirewall firewall add rule name="MiniShark E3 Hub" dir=in action=allow protocol=TCP localport=9000
 netsh advfirewall firewall add rule name="MiniShark API" dir=in action=allow protocol=TCP localport=8001
 netsh advfirewall firewall add rule name="MiniShark Dashboard" dir=in action=allow protocol=TCP localport=5173
+netsh advfirewall firewall add rule name="MiniShark ICMP Ping" dir=in action=allow protocol=icmpv4:8,any
 
 :: 5. Display Configuration
 echo.
