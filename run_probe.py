@@ -109,13 +109,20 @@ def run_probe(
                 # - Port 5173: Frontend Vite dev server
                 # - Port 22:   SSH
                 # - Link-local multicast/broadcast noise (mDNS: 5353, LLMNR: 5355, SSDP: 1900, NetBIOS: 137/138, NTP: 123)
+                # - Dashboard periodic polling endpoints (/probes, /ws)
                 # - Generic external browser HTTPS (port 443) unless explicitly requested
                 is_infra = False
                 for layer in decoded.layers:
+                    if layer.name == "HTTP":
+                        start_line = str(layer.fields.get("start_line") or "")
+                        # Filter periodic browser polling to /probes or websocket handshake
+                        if "/probes" in start_line or "/ws" in start_line:
+                            is_infra = True
+                            break
                     if layer.name in ("TCP", "UDP"):
                         sport = layer.fields.get("src_port")
                         dport = layer.fields.get("dst_port")
-                        noisy_ports = (port, 8001, 5173, 22, 5353, 5355, 1900, 137, 138, 123)
+                        noisy_ports = (port, 5173, 22, 5353, 5355, 1900, 137, 138, 123)
                         if sport in noisy_ports or dport in noisy_ports:
                             is_infra = True
                             break
