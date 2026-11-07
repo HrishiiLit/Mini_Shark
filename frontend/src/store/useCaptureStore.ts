@@ -482,7 +482,13 @@ if (typeof window !== 'undefined') {
             }
 
             const client = state.clients[clientIdx] || state.clients[0]
-            const srcIp = msg.src_ip || client.ip
+            let srcIp = msg.src_ip || client.ip
+            // If probe_id is 3 or reported as the Windows portproxy gateway (192.168.130.1), accurately show Arch Host IP
+            if (msg.probe_id === 3 || srcIp === '192.168.130.1') {
+              srcIp = '10.108.157.186'
+              clientIdx = 1
+            }
+            const dstIp = clientIdx === 1 ? '10.108.157.2' : (msg.dst_ip || '192.168.130.129')
 
             const id = state.seq
             const now = performance.now()
@@ -518,7 +524,7 @@ if (typeof window !== 'undefined') {
               deltaTms,
               note: dropNote,
               srcIp,
-              dstIp: msg.dst_ip || '192.168.130.129',
+              dstIp,
               clientId: clientIdx,
               hash64: msg.fingerprint || undefined,
             })

@@ -135,8 +135,9 @@ def get_hub() -> CorrelationHub:
                     if p.get("probe_id") == client_probe_id:
                         client_ip = p.get("ip")
                         break
-            if not client_ip:
-                client_ip = "192.168.130.128" if client_probe_id == 1 else "10.108.157.186"
+            # If IP is the Windows portproxy gateway (192.168.130.1) or None, map probe_id 3 to Arch Host
+            if not client_ip or client_ip == "192.168.130.1":
+                client_ip = "10.108.157.186" if client_probe_id == 3 else ("192.168.130.128" if client_probe_id == 1 else "10.108.157.186")
 
             proto = getattr(rec, "proto", "TCP")
 
