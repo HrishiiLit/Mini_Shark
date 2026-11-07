@@ -488,7 +488,11 @@ if (typeof window !== 'undefined') {
               srcIp = '10.108.157.186'
               clientIdx = 1
             }
-            const dstIp = clientIdx === 1 ? '10.108.157.2' : (msg.dst_ip || '192.168.130.129')
+            const dstIp = state.probesStatus.probe2_ip || '192.168.130.129'
+            const protoUpper = (msg.proto || 'TCP').toUpperCase() as any
+            const isIcmp = protoUpper === 'ICMP'
+            const srcPort = isIcmp ? 0 : (msg.src_port || 54210)
+            const dstPort = isIcmp ? 0 : (msg.dst_port || (protoUpper === 'HTTP' ? 8001 : 80))
 
             const id = state.seq
             const now = performance.now()
@@ -513,9 +517,9 @@ if (typeof window !== 'undefined') {
             const packet = buildPacket({
               id,
               timeUs: msg.t1_ns ? Math.round(msg.t1_ns / 1000) : 1_704_000_000_000_000 + id * 97_331,
-              protocol: (msg.proto || 'TCP').toUpperCase() as any,
-              srcPort: msg.src_port || 54210,
-              dstPort: msg.dst_port || 80,
+              protocol: protoUpper,
+              srcPort,
+              dstPort,
               ipId,
               tcpSeq,
               ttl: 63,

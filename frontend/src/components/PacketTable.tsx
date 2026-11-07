@@ -127,7 +127,7 @@ export function PacketTable() {
                       {isArch ? 'Arch Host' : 'VM2'}
                     </span>
                     <span className={isSelected ? 'text-white' : 'text-slate-800'}>
-                      {p.srcIp}:{p.srcPort}
+                      {p.srcIp}{p.protocol === 'ICMP' || !p.srcPort ? '' : `:${p.srcPort}`}
                     </span>
                   </td>
                   <td className={`px-2 py-1 whitespace-nowrap ${isSelected ? 'text-slate-100' : 'text-slate-800'}`}>
@@ -138,7 +138,7 @@ export function PacketTable() {
                     >
                       Server
                     </span>
-                    {p.dstIp || '192.168.130.129'}:{p.dstPort}
+                    {p.dstIp || '192.168.130.129'}{p.protocol === 'ICMP' || !p.dstPort ? '' : `:${p.dstPort}`}
                   </td>
                   <td className="px-2 py-1 text-center">
                     <ProtoBadge protocol={p.protocol} isSelected={isSelected} />
