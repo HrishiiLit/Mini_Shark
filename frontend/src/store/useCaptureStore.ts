@@ -488,7 +488,10 @@ if (typeof window !== 'undefined') {
               srcIp = '10.108.157.186'
               clientIdx = 1
             }
-            const dstIp = state.probesStatus.probe2_ip || '192.168.130.129'
+            const p2Ip = state.probesStatus.probe2_ip
+            const dstIp = (msg.dst_ip && msg.dst_ip !== '127.0.0.1')
+              ? msg.dst_ip
+              : (p2Ip && p2Ip !== '127.0.0.1' ? p2Ip : '192.168.130.129')
             const protoUpper = (msg.proto || 'TCP').toUpperCase() as any
             const isIcmp = protoUpper === 'ICMP'
             const srcPort = isIcmp ? 0 : (msg.src_port || 54210)
