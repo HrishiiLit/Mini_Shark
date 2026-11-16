@@ -123,6 +123,18 @@ If UFW or firewalld is active, open the required ports:
 sudo ufw allow 8001/tcp && sudo ufw allow 9000/tcp && sudo ufw allow 5173/tcp && sudo ufw allow 9500/udp
 ```
 
+### Step 2.3b — Route Return Traffic through Windows Router (Method A Only)
+If all 4 laptops connect to the same Wi-Fi / Hotspot (Method A), add static routes on Laptop 4 so return responses go through the Windows Router instead of bypassing it:
+```bash
+# 1. Ignore ICMP redirects from the Windows Router
+sudo sysctl -w net.ipv4.conf.all.accept_redirects=0
+sudo sysctl -w net.ipv4.conf.default.accept_redirects=0
+
+# 2. Route responses to Client 1 and Client 2 via the Windows Router
+sudo ip route add <ARCH_CLIENT_IP>/32 via <WINDOWS_ROUTER_IP>
+sudo ip route add <WIN_CLIENT_IP>/32 via <WINDOWS_ROUTER_IP>
+```
+
 ### Step 2.4 — Terminal 1: Start Backend API (`:8001`) & E3 Hub (`:9000`)
 ```bash
 cd ~/Minyaa
@@ -139,9 +151,9 @@ INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
 ```bash
 cd ~/Minyaa/frontend
 npm install
-VITE_API_HOST=http://127.0.0.1:8001 npm run dev -- --host 0.0.0.0
+npm run dev -- --host 0.0.0.0
 ```
-Open your browser at `http://localhost:5173`. Teammates on other laptops can view the dashboard live at `http://<SERVER_IP>:5173`.
+> **Important Note:** Do **not** prefix with `VITE_API_HOST=http://127.0.0.1:8001` when teammates on other laptops need to view the dashboard. Running `npm run dev -- --host 0.0.0.0` alone allows `frontend/src/config.ts` to dynamically resolve `<SERVER_IP>:8001` based on the browser's address bar. Open `http://localhost:5173` locally, or `http://<SERVER_IP>:5173` from other laptops.
 
 ### Step 2.6 — Terminal 3: Start Egress Probe 2
 ```bash
@@ -214,6 +226,7 @@ To demonstrate silent drop localization to the evaluators, run these commands on
   ```powershell
   powershell -ExecutionPolicy Bypass -File .\scripts\setup_windows_router.ps1 -Action drop-link1 -ClientIP <ARCH_CLIENT_IP>
   ```
+  *(Note: If Probe 10 is running on this same router machine, Npcap captures before Windows Firewall, so to authentically simulate Link 1 drop without Probe 10 seeing it, drop at the Client: `sudo iptables -A OUTPUT -d <SERVER_IP> -m statistic --mode random --probability 0.3 -j DROP` on Laptop 1).*
   *Dashboard Result:* Packets are highlighted in red and attributed as:  
   `Dropped on Link 1: Client PC ──✖──> Router` (Client saw it, Router never received it).
 
