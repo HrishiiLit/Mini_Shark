@@ -23,7 +23,8 @@ export function HeaderBar() {
   const p1Online = probes.probe1_connected || demoMode
   const p2Online = probes.probe2_connected || demoMode
 
-  const clientProbes = (probes.active_clients || []).filter((p) => p.probe_id !== 2)
+  const clientProbes = (probes.active_clients || []).filter((p) => p.probe_id !== 2 && p.probe_id !== 10)
+  const routerProbe = (probes.active_clients || []).find((p) => p.probe_id === 10)
   const serverIp =
     probes.probe2_ip && probes.probe2_ip !== '127.0.0.1'
       ? probes.probe2_ip
@@ -86,6 +87,15 @@ export function HeaderBar() {
               ip={probes.probe1_ip || 'Waiting...'}
               online={p1Online}
               color="blue"
+            />
+          )}
+          {/* Probe 10 (Router) if active */}
+          {(routerProbe || probes.router_connected) && (
+            <ProbeIndicator
+              label="Probe 10 (Router)"
+              ip={routerProbe?.ip || probes.router_ip || 'Forwarding'}
+              online={true}
+              color="emerald"
             />
           )}
           {/* Probe 2 (Server Hub) */}

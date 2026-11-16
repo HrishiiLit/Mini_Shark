@@ -48,8 +48,9 @@ def _get_probes_status(hub: Any) -> dict[str, Any]:
         try:
             s = hub.get_status()
             probes = s.get("probes", [])
-            p1 = next((p for p in probes if p.get("probe_id") == 1 and p.get("status") == "online"), None)
+            p1 = next((p for p in probes if p.get("probe_id") not in (2, 10) and p.get("status") == "online"), None)
             p2 = next((p for p in probes if p.get("probe_id") == 2 and p.get("status") == "online"), None)
+            r = next((p for p in probes if p.get("probe_id") == 10 and p.get("status") == "online"), None)
             active_list = [
                 {
                     "ip": p.get("ip", "unknown"),
@@ -65,6 +66,8 @@ def _get_probes_status(hub: Any) -> dict[str, Any]:
                 "probe1_ip": p1.get("ip") if p1 else None,
                 "probe2_connected": p2 is not None,
                 "probe2_ip": p2.get("ip") if p2 else None,
+                "router_connected": r is not None,
+                "router_ip": r.get("ip") if r else None,
                 "active_clients": active_list,
                 "total_connected": len(active_list),
             }
@@ -138,7 +141,14 @@ def get_hub() -> CorrelationHub:
             # 2. Broadcast to all WebSocket clients
             delay_ms = round(rec.delay_ns / 1_000_000, 3) if rec.delay_ns is not None else None
             client_probe_id = getattr(rec, "client_probe_id", 1)
-            client_id = max(0, client_probe_id - 1) if client_probe_id <= 3 else (client_probe_id - 11 if client_probe_id >= 11 else 0)
+            if client_probe_id == 10:
+                client_id = 0
+            elif client_probe_id <= 3:
+                client_id = max(0, client_probe_id - 1)
+            elif client_probe_id >= 11:
+                client_id = client_probe_id - 11
+            else:
+                client_id = 0
 
             client_ip = None
             server_ip = None

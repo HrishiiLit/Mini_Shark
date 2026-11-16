@@ -341,6 +341,9 @@ function RouterNode({ onResetFilter }: { onResetFilter?: () => void }) {
   const [hovered, setHovered] = useState(false)
   useCursor(hovered)
   const spin = useRef<THREE.Mesh>(null)
+  const probes = useCaptureStore((s) => s.probesStatus)
+  const routerProbe = (probes.active_clients || []).find((p) => p.probe_id === 10)
+  const routerIp = routerProbe?.ip || probes.router_ip || null
   useFrame((_, dt) => {
     if (spin.current) spin.current.rotation.z += dt * 0.55
   })
@@ -369,9 +372,9 @@ function RouterNode({ onResetFilter }: { onResetFilter?: () => void }) {
       </mesh>
       <Html position={[0, 0.86, 0]} center distanceFactor={10} zIndexRange={[5, 0]} occlude={false} pointerEvents="none">
         <div className="ms-node cyan">
-          <div className="ms-pill">MiniShark-Host · E3</div>
-          <strong>Router Node (Hub)</strong>
-          <span>TCP :9000 Hub Listening</span>
+          <div className="ms-pill">{routerIp ? `Probe 10 · ${routerIp}` : 'MiniShark · L3 Router'}</div>
+          <strong>Router Node</strong>
+          <span>{routerProbe ? 'Probe 10 Active (Transit)' : 'L3 Forwarding Gateway'}</span>
         </div>
       </Html>
     </group>
@@ -507,7 +510,7 @@ function ClientsHUD() {
   const filter = useCaptureStore((s) => s.filter)
   const setFilter = useCaptureStore((s) => s.setFilter)
 
-  const clientProbes = (probes.active_clients || []).filter((p) => p.probe_id !== 2)
+  const clientProbes = (probes.active_clients || []).filter((p) => p.probe_id !== 2 && p.probe_id !== 10)
   const uniqueProbeIds = Array.from(new Set(clientProbes.map((p) => p.probe_id)))
   const ingressCount = uniqueProbeIds.length
   const activeClients = clients.slice(0, Math.max(1, clientCount))

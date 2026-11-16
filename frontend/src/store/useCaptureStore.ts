@@ -12,6 +12,8 @@ export interface ProbesStatus {
   probe1_ip: string | null
   probe2_connected: boolean
   probe2_ip: string | null
+  router_connected?: boolean
+  router_ip?: string | null
   active_clients: Array<{ ip: string; probe_id: number; records: number }>
   total_connected: number
 }
@@ -122,10 +124,10 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   },
 
   setProbesStatus: (status: ProbesStatus) => {
-    // Collect unique client probes (excluding probe 2 which is egress)
+    // Collect unique client probes (excluding probe 2 egress and probe 10 router)
     const clientProbesMap = new Map<number, { ip: string; probe_id: number; records: number }>()
     for (const p of status.active_clients || []) {
-      if (p.probe_id !== 2) {
+      if (p.probe_id !== 2 && p.probe_id !== 10) {
         if (!clientProbesMap.has(p.probe_id) || (p.records ?? 0) >= (clientProbesMap.get(p.probe_id)?.records ?? 0)) {
           clientProbesMap.set(p.probe_id, p)
         }

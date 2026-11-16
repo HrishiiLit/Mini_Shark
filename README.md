@@ -91,17 +91,19 @@ Follow the staged physical deployment guide in **[`docs/physical_lab_setup.md`](
 
 ---
 
-## Roadmap & Phase Status
+## Roadmap
 
-| Phase | Scope | Milestone / Tag | Status |
-| --- | --- | --- | --- |
-| 1 | Architecture, contracts & offline foundation | `v0.1-phase1` | ✅ Implemented |
-| 2 | E1: live probe capture, batching & portable runners | `v0.2-phase2` | ✅ Implemented |
-| 3 | E2: L2–L7 dissection, BLAKE2b-64 & DNS entropy | `v0.3-phase3` | ✅ Implemented |
-| 4 | E3: `:9000` telemetry hub, O(1) correlation & link drop isolation | `v0.4-phase4` | ✅ Implemented |
-| 5 | E4: 4 deterministic diagnostic rules & SQLite WAL (`mini_shark.db`) | `v0.5-phase5` | ✅ Implemented |
-| 6 | FastAPI REST + `/ws/live` (`:8001`) & React + Three.js UI (`:5173`) | `v0.6-phase6` | ✅ Implemented |
-| 7 | Multi-PC physical lab validation & final demo | `v1.0` | 🔄 In Progress ([3-laptop → 8+ PC runbook](docs/physical_lab_setup.md)) |
+Seven phases (details, acceptance criteria and risks per phase: [docs/implementation.md](docs/implementation.md)):
+
+| Phase | Scope | Tag (planned) / Status |
+| :---: | :--- | :--- |
+| **1** | Architecture, contracts and development foundation | `v0.1-phase1` ✅ (offline foundation) |
+| **2** | E1: distributed capture and buffering | `v0.2-phase2` ✅ (AF_PACKET / Scapy / Npcap) |
+| **3** | E2: protocol dissection and fingerprinting | `v0.3-phase3` ✅ (BLAKE2b-64 invariant & entropy) |
+| **4** | E3: telemetry ingestion and correlation | `v0.4-phase4` ✅ (:9000 hub, O(1) correlation & drops) |
+| **5** | E4: diagnostic rules and persistence | `v0.5-phase5` ✅ (4 anomaly rules & SQLite WAL) |
+| **6** | API, WebSocket delivery and React dashboard | `v0.6-phase6` ✅ (FastAPI :8001 & React 3D UI :5173) |
+| **7** | Integration, validation and final demonstration | `v1.0` 🔄 In Progress ([4-laptop deployment guide](docs/four_laptop_deployment_guide.md)) |
 
 ---
 
@@ -109,7 +111,9 @@ Follow the staged physical deployment guide in **[`docs/physical_lab_setup.md`](
 
 | Document | Contents |
 | --- | --- |
-| [`docs/physical_lab_setup.md`](docs/physical_lab_setup.md) | **Start here for hardware labs:** Stage 1 (3-Laptop pilot) + Stage 2 (8–50 PC lab), routing, firewall, fault injection (`tc netem`), and traffic generation |
+| [`docs/four_laptop_deployment_guide.md`](docs/four_laptop_deployment_guide.md) | **Step-by-step 4-laptop runbook:** Arch Linux Client + Windows Client + Windows Router + Linux Server Hub ("mrq") |
+| [`docs/implementation.md`](docs/implementation.md) | Seven-phase engineering roadmap, acceptance criteria, engine ownership, and verification status |
+| [`docs/physical_lab_setup.md`](docs/physical_lab_setup.md) | Stage 1 (3-Laptop pilot) + Stage 2 (8–50 PC lab), routing, firewall, and fault injection |
 | [`docs/README.md`](docs/README.md) | Detailed technical overview, academic concepts, and performance notes |
 | [`docs/data_contract.md`](docs/data_contract.md) | Engine-to-engine models, BLAKE2b v1 invariants, and 24-byte wire format |
 | [`docs/api_routes.md`](docs/api_routes.md) | FastAPI REST endpoints, WebSocket `/ws/live`, and TCP `:9000` ingestion spec |

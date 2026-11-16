@@ -35,6 +35,46 @@ This document provides exact, terminal-by-terminal commands for deploying Mini-S
 
 ---
 
+## 1.1 Pre-Flight Verification & Critical Pitfalls
+
+Before launching probes, verify these four essential hardware conditions:
+
+1. **AP / Wi-Fi Client Isolation Check:**
+   Many campus or public Wi-Fi networks block intra-subnet client communication. Test with a quick ping:
+   ```bash
+   ping <WINDOWS_ROUTER_IP>
+   ping <SERVER_IP>
+   ```
+   If packets fail to reach peers despite firewall rules, the Wi-Fi network has client isolation enabled. **Fix:** Use a smartphone Mobile Hotspot or an ad-hoc Wi-Fi network.
+
+2. **NTP Physical Clock Synchronization:**
+   Estimated one-way delay is computed as $\Delta T = T_2 - T_1$. If clocks differ by even 50 ms, delay values become invalid or negative.
+   * **On Linux (Laptop 1 & Laptop 4):**
+     ```bash
+     sudo timedatectl set-ntp true
+     sudo systemctl restart systemd-timesyncd
+     timedatectl status
+     ```
+   * **On Windows (Laptop 2 & Laptop 3):**
+     In an Administrator PowerShell prompt:
+     ```powershell
+     w32tm /resync /nowait
+     ```
+
+3. **Disable ICMP Redirects on Arch Linux (Method A Hairpin Routing):**
+   When routing packets destined for the Server through the Windows Router on the same Wi-Fi subnet, RFC 792 dictates that the router sends ICMP Type 5 (Redirect) messages to Arch Linux. If Arch accepts redirects, it will bypass the router and send traffic direct to the server!
+   ```bash
+   sudo sysctl -w net.ipv4.conf.all.accept_redirects=0
+   sudo sysctl -w net.ipv4.conf.default.accept_redirects=0
+   ```
+
+4. **Npcap NDIS Driver Behavior & Link 1 vs Link 2 Drops:**
+   On Windows, Npcap captures packets at the NDIS layer *before* the Windows Firewall drops inbound packets. If Probe 10 runs on the router, it records `router_ts` before an inbound block drops the packet, causing Mini-Shark to attribute the drop to Link 2 (`Router ──✖──> Server`).
+   * **To test Link 1 drops authentically (`Client ──✖──> Router`):** Drop packets on the sender (e.g. `iptables OUTPUT` on Arch or outbound Windows firewall on Client 2).
+   * **To test Link 2 drops (`Router ──✖──> Server`):** Use `.\scripts\setup_windows_router.ps1 -Action drop-link2 -ServerIP <SERVER_IP>`.
+
+---
+
 ## 2. Laptop 4: Linux ("mrq") — Central Server Hub & Egress Probe 2
 
 Laptop 4 runs Linux (Ubuntu, Debian, Fedora, Arch, etc.). It hosts the central FastAPI backend, the E3 TCP correlation hub, the React dashboard, and local Egress Probe 2.
@@ -206,6 +246,11 @@ cd Minyaa
 ### Step 4.2 — Route Traffic through Windows Router (Method A)
 If all 4 laptops are on the same Wi-Fi, route all traffic destined for the Server via the Windows Router:
 ```bash
+# 1. Ignore ICMP redirect packets from the Windows router
+sudo sysctl -w net.ipv4.conf.all.accept_redirects=0
+sudo sysctl -w net.ipv4.conf.default.accept_redirects=0
+
+# 2. Add host route to Server via Windows Router
 sudo ip route add <SERVER_IP>/32 via <WINDOWS_ROUTER_IP>
 # Example: sudo ip route add 192.168.1.20/32 via 192.168.1.10
 ```
@@ -245,6 +290,11 @@ python3 scripts/traffic_generator.py --target <SERVER_IP> --mode udp-stream --ra
 
 # 4. Live DNS Anomaly test (simulates high-entropy DNS tunneling):
 python3 test_anomalies.py --dns --target <SERVER_IP>
+
+# 5. Fault Injection: Demonstrate Link 1 Drop (Client ──✖──> Router):
+sudo iptables -A OUTPUT -d <SERVER_IP> -m statistic --mode random --probability 0.3 -j DROP
+# When finished, remove the drop rule:
+sudo iptables -D OUTPUT -d <SERVER_IP> -m statistic --mode random --probability 0.3 -j DROP
 ```
 
 ---

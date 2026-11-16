@@ -58,8 +58,15 @@ function Drop-Link1 {
     Write-Host "`n[!] Injecting drop on Link 1 (Client $ClientIP ──✖──> Router)..." -ForegroundColor Yellow
     Remove-NetFirewallRule -DisplayName "MiniShark-Drop-Link1" -ErrorAction SilentlyContinue
     New-NetFirewallRule -DisplayName "MiniShark-Drop-Link1" -Direction Inbound -Action Block -RemoteAddress $ClientIP -Profile Any | Out-Null
-    Write-Host "[✓] Link 1 drop ACTIVE. Traffic from $ClientIP is dropped at router ingress." -ForegroundColor Green
-    Write-Host "    Mini-Shark will attribute these as: Dropped on Link 1: Client ──✖──> Router" -ForegroundColor Yellow
+    Write-Host "[✓] Inbound Firewall block active for $ClientIP." -ForegroundColor Green
+    Write-Host "`n[IMPORTANT - Npcap Architecture Note]:" -ForegroundColor Yellow
+    Write-Host "    Windows Npcap driver captures packets at the NDIS layer (BEFORE the Windows Firewall)." -ForegroundColor Gray
+    Write-Host "    If Probe 10 is running on THIS router laptop, Probe 10 will still sniff the packet," -ForegroundColor Gray
+    Write-Host "    setting 'router_ts' and causing Mini-Shark to attribute the drop to Link 2 (Router ──✖──> Server)." -ForegroundColor Gray
+    Write-Host "    * To authentically demonstrate a Link 1 drop with Probe 10 active, drop at the SENDER:" -ForegroundColor Cyan
+    Write-Host "      - On Arch Linux Client : sudo iptables -A OUTPUT -d <SERVER_IP> -j DROP" -ForegroundColor White
+    Write-Host "      - On Windows Client    : New-NetFirewallRule -DisplayName 'Drop-Out' -Direction Outbound -Action Block -RemoteAddress <SERVER_IP>" -ForegroundColor White
+    Write-Host "    * If Probe 10 is NOT running on this router, this router rule alone demonstrates Link 1 drop." -ForegroundColor Gray
 }
 
 function Drop-Link2 {

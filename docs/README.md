@@ -138,17 +138,19 @@ Minyaa/
 
 ---
 
-## Roadmap & Phase Status
+## Roadmap
 
-| Phase | Scope | Milestone / Tag | Status |
-| --- | --- | --- | --- |
-| 1 | Architecture, contracts, and offline foundation | `v0.1-phase1` | ✅ Implemented (`models.py`, `interfaces.py`, [data_contract.md](data_contract.md)) |
-| 2 | E1: distributed capture, batching & zero-install runners | `v0.2-phase2` | ✅ Implemented (`AFPacketCapture`, Scapy/Npcap, 50-pkt / 20 ms batching, `run_probe.sh` / `.bat`) |
-| 3 | E2: protocol dissection, BLAKE2b-64 & DNS entropy | `v0.3-phase3` | ✅ Implemented (L2–L7 dissection, invariant hash, `is_infra` filtering, `H(X)`) |
-| 4 | E3: `:9000` telemetry hub, correlation & drop localization | `v0.4-phase4` | ✅ Implemented (O(1) dual tables, 500 ms min-heap, `link_1` / `link_2` localization) |
-| 5 | E4: diagnostic rules and SQLite WAL persistence | `v0.5-phase5` | ✅ Implemented (4 rules verified in `test_anomalies.py`, `mini_shark.db`) |
-| 6 | FastAPI REST/WebSocket (`:8001`) & React UI (`:5173`) | `v0.6-phase6` | ✅ Implemented (`/ws/live`, React + Tailwind + Zustand + Three.js frontend) |
-| 7 | Physical lab validation & final demonstration | `v1.0` | 🔄 In Progress (synthetic tests pass locally; 3-laptop pilot → 8+ PC lab demo per [physical_lab_setup.md](physical_lab_setup.md)) |
+Seven phases (details, acceptance criteria and risks per phase: [implementation.md](implementation.md)):
+
+| Phase | Scope | Tag (planned) / Status |
+| :---: | :--- | :--- |
+| **1** | Architecture, contracts and development foundation | `v0.1-phase1` ✅ (offline foundation) |
+| **2** | E1: distributed capture and buffering | `v0.2-phase2` ✅ (AF_PACKET / Scapy / Npcap) |
+| **3** | E2: protocol dissection and fingerprinting | `v0.3-phase3` ✅ (BLAKE2b-64 invariant & entropy) |
+| **4** | E3: telemetry ingestion and correlation | `v0.4-phase4` ✅ (:9000 hub, O(1) correlation & drops) |
+| **5** | E4: diagnostic rules and persistence | `v0.5-phase5` ✅ (4 anomaly rules & SQLite WAL) |
+| **6** | API, WebSocket delivery and React dashboard | `v0.6-phase6` ✅ (FastAPI :8001 & React 3D UI :5173) |
+| **7** | Integration, validation and final demonstration | `v1.0` 🔄 In Progress ([4-laptop deployment guide](four_laptop_deployment_guide.md)) |
 
 ---
 
@@ -156,6 +158,8 @@ Minyaa/
 
 | Document | Contents |
 | --- | --- |
+| [four_laptop_deployment_guide.md](four_laptop_deployment_guide.md) | **Step-by-step 4-laptop runbook:** Arch Linux Client + Windows Client + Windows Router + Linux Server Hub ("mrq") |
+| [implementation.md](implementation.md) | Seven-phase engineering roadmap, acceptance criteria, engine ownership, and verification status |
 | [physical_lab_setup.md](physical_lab_setup.md) | 3-Laptop Pilot + 8–50 PC physical lab implementation runbook |
 | [data_contract.md](data_contract.md) | Engine-to-engine structures, BLAKE2b v1 spec, and 24-byte wire record |
 | [api_routes.md](api_routes.md) | FastAPI REST + WebSocket contract and TCP `:9000` framing |

@@ -344,9 +344,15 @@ class CorrelationHub:
                 by_probe_id[pid] = p
 
         deduped_active = list(by_probe_id.values())
-        client_probes = [p for p in deduped_active if p["probe_id"] != self._probe2_id]
+        client_probes = [
+            p
+            for p in deduped_active
+            if p["probe_id"] != self._probe2_id
+            and p["probe_id"] != self._router_probe_id
+        ]
         p1 = client_probes[0] if client_probes else None
         p2 = next((p for p in deduped_active if p["probe_id"] == self._probe2_id), None)
+        r = next((p for p in deduped_active if p["probe_id"] == self._router_probe_id), None)
 
         active_list = [
             {
@@ -362,6 +368,8 @@ class CorrelationHub:
             "probe1_ip": p1["ip"] if p1 else None,
             "probe2_connected": p2 is not None,
             "probe2_ip": p2["ip"] if p2 else None,
+            "router_connected": r is not None,
+            "router_ip": r["ip"] if r else None,
             "active_clients": active_list,
             "total_connected": len(deduped_active),
         }
