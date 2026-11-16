@@ -306,9 +306,8 @@ of an alert and its evidence in one transaction; schema version via
 (`captures`, `packets`-raw, `layers`, `flows`) are unchanged and keep their
 current behavior.
 
-*Naming decision pending:* the presentation specifies database file
-`minishark.db`; current code defaults to `mini_shark.db` (env `MINI_SHARK_DB`).
-Tracked as an open question in [implementation.md](implementation.md).
+*Database filename:* the codebase standardizes on `mini_shark.db`
+(overridable via env `MINI_SHARK_DB`).
 
 ## 8. Time, clocks and timestamp precision
 
