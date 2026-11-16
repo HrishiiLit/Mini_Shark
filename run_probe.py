@@ -328,13 +328,13 @@ def main() -> None:
         type=str,
         default="",
         dest="bpf_filter",
-        help="BPF filter expression (e.g. 'host 10.108.157.2')",
+        help="BPF filter expression (e.g. 'host 192.168.1.20')",
     )
     args = parser.parse_args()
 
     parts = args.server.rsplit(":", 1)
     if len(parts) != 2 or not parts[1].isdigit():
-        print("Error: --server must be host:port format, e.g. 10.108.157.2:9000")
+        print("Error: --server must be host:port format, e.g. 192.168.1.20:9000")
         sys.exit(1)
 
     host, port = parts[0], int(parts[1])

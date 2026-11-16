@@ -139,13 +139,12 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
       const updatedClients = s.clients.map((c, i) => {
         if (i < clientProbes.length) {
           const cp = clientProbes[i]
-          const isArch = cp.ip.startsWith('10.108.') || cp.probe_id === 3
           return {
             ...c,
             ip: cp.ip,
-            name: isArch ? 'Laptop 2 (Arch Host)' : `w2 (Client ${i + 1})`,
-            probeBadge: `Probe ${cp.probe_id} · Ingress (${isArch ? 'wlo1' : 'VMnet1'})`,
-            vm: isArch ? 'Arch Linux Host' : 'Laptop 1 (VM2)',
+            name: `Client ${i + 1} (Probe ${cp.probe_id})`,
+            probeBadge: `Probe ${cp.probe_id} · Ingress`,
+            vm: `Host ${cp.ip}`,
           }
         }
         return c
@@ -469,29 +468,28 @@ if (typeof window !== 'undefined') {
             const status: Packet['status'] = isDrop ? 'dropped' : isSlow ? 'high-latency' : 'matched'
             const kind: Flight['kind'] = isDrop ? 'drop' : isSlow ? 'slow' : 'normal'
 
-            // Accurate client attribution:
-            // Probe 3 or Arch Linux IP (10.108.157.186) -> Client 2 (id: 1)
-            // Probe 1 or VM2 IP (192.168.130.128) -> Client 1 (id: 0)
+            // Dynamic client attribution:
             let clientIdx = 0
-            if (msg.src_ip === '10.108.157.186' || msg.probe_id === 3) {
-              clientIdx = 1
-            } else if (msg.src_ip === '192.168.130.128' || msg.probe_id === 1) {
-              clientIdx = 0
-            } else if (msg.client_id !== undefined && msg.client_id < state.clientCount) {
+            if (msg.client_id !== undefined && msg.client_id < state.clientCount) {
               clientIdx = msg.client_id
+            } else if (msg.probe_id) {
+              const foundIdx = state.clients.findIndex((c) => c.probeBadge?.includes(`Probe ${msg.probe_id}`))
+              if (foundIdx >= 0) clientIdx = foundIdx
             }
 
             const client = state.clients[clientIdx] || state.clients[0]
-            let srcIp = msg.src_ip || client.ip
-            // If probe_id is 3 or reported as the Windows portproxy gateway (192.168.130.1), accurately show Arch Host IP
-            if (msg.probe_id === 3 || srcIp === '192.168.130.1') {
-              srcIp = '10.108.157.186'
-              clientIdx = 1
-            }
+            const srcIp = msg.src_ip || client?.ip || `Probe-${msg.probe_id || 1}`
             const p2Ip = state.probesStatus.probe2_ip
-            const dstIp = (msg.dst_ip && msg.dst_ip !== '127.0.0.1')
-              ? msg.dst_ip
-              : (p2Ip && p2Ip !== '127.0.0.1' ? p2Ip : '192.168.130.129')
+            const fallbackServerIp =
+              typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+                ? window.location.hostname
+                : '127.0.0.1'
+            const dstIp =
+              msg.dst_ip && msg.dst_ip !== '127.0.0.1'
+                ? msg.dst_ip
+                : p2Ip && p2Ip !== '127.0.0.1'
+                  ? p2Ip
+                  : fallbackServerIp
             const protoUpper = (msg.proto || 'TCP').toUpperCase() as any
             const isIcmp = protoUpper === 'ICMP'
             const srcPort = isIcmp ? 0 : (msg.src_port || 54210)
@@ -510,7 +508,7 @@ if (typeof window !== 'undefined') {
                 ? 100000 + msg.probe1_seq * 1460
                 : undefined
 
-            const clientLabel = clientIdx === 1 ? 'Arch Linux Host (Probe 3)' : 'VM2 Client (Probe 1)'
+            const clientLabel = client?.name || `Client ${clientIdx + 1} (Probe ${msg.probe_id || 1})`
             const dropNote = isDrop
               ? (msg.drop_link === 'link_2'
                   ? `Dropped on Link 2: Router ──✖──> Server Hub (Probe 2)`

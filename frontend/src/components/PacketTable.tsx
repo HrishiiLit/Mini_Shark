@@ -79,7 +79,7 @@ export function PacketTable() {
           <tbody>
             {rows.map((p) => {
               const isSelected = selectedId === p.id
-              const isArch = p.srcIp === '10.108.157.186' || p.clientId === 1
+              const clientBadge = p.clientLabel ? p.clientLabel.split(' ')[0] : (p.clientId != null ? `Client ${p.clientId + 1}` : 'Client')
               const rowColor = getWiresharkRowClass(p, isSelected)
 
               return (
@@ -119,12 +119,10 @@ export function PacketTable() {
                       className={`mr-1 inline-block rounded px-1 text-[9px] font-bold ${
                         isSelected
                           ? 'bg-white/20 text-white'
-                          : isArch
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-blue-100 text-blue-800'
+                          : 'bg-blue-100 text-blue-800'
                       }`}
                     >
-                      {isArch ? 'Arch Host' : 'VM2'}
+                      {clientBadge}
                     </span>
                     <span className={isSelected ? 'text-white' : 'text-slate-800'}>
                       {p.srcIp}{p.protocol === 'ICMP' || !p.srcPort ? '' : `:${p.srcPort}`}
@@ -138,7 +136,7 @@ export function PacketTable() {
                     >
                       Server
                     </span>
-                    {p.dstIp || '192.168.130.129'}{p.protocol === 'ICMP' || !p.dstPort ? '' : `:${p.dstPort}`}
+                    {p.dstIp || 'Server'}{p.protocol === 'ICMP' || !p.dstPort ? '' : `:${p.dstPort}`}
                   </td>
                   <td className="px-2 py-1 text-center">
                     <ProtoBadge protocol={p.protocol} isSelected={isSelected} />
@@ -161,7 +159,7 @@ export function PacketTable() {
                   <div className="flex flex-col items-center gap-1.5">
                     <span className="font-semibold text-slate-600">No correlated packets captured yet</span>
                     <span className="text-[12px] text-slate-500">
-                      Start live probes on VM2, Arch Linux host, and VM1 Server to stream live traffic.
+                      Start live probes on Client machines and Server Hub to stream live traffic.
                     </span>
                   </div>
                 </td>
@@ -209,7 +207,7 @@ function StatusCell({ packet, isSelected }: { packet: Packet; isSelected: boolea
   if (packet.status === 'dropped') {
     return (
       <span className={`font-semibold ${isSelected ? 'text-white' : 'text-rose-700'}`}>
-        ❌ Dropped on Link: {packet.srcIp} → {packet.dstIp || '192.168.130.129'}
+        ❌ Dropped on Link: {packet.srcIp} → {packet.dstIp || 'Server'}
       </span>
     )
   }

@@ -1,7 +1,7 @@
 import type { ByteKind, Packet, Protocol, ProtocolLayer } from '../types'
 
-const CLIENT_IP = '192.168.130.128'
-const SERVER_IP = '192.168.130.129'
+const CLIENT_IP = '192.168.1.11'
+const SERVER_IP = '192.168.1.20'
 const CLIENT_MAC = [0x00, 0x0c, 0x29, 0xa4, 0x10, 0x11]
 const SERVER_MAC = [0x00, 0x0c, 0x29, 0xb8, 0x20, 0x20]
 const ROUTER_MAC = [0x00, 0x0c, 0x29, 0x7e, 0x00, 0x01]

@@ -12,7 +12,7 @@ export function ProtocolTree({ packet }: { packet: Packet | undefined }) {
     )
   }
 
-  const isArch = packet.srcIp === '10.108.157.186' || packet.clientId === 1
+  const ingressLabel = packet.clientLabel || (packet.clientId != null ? `Client ${packet.clientId + 1}` : 'Client')
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#F8FAFC]">
@@ -23,7 +23,7 @@ export function ProtocolTree({ packet }: { packet: Packet | undefined }) {
           <span className="font-mono text-slate-900">Frame {packet.id}</span>
           <span className="text-slate-400">·</span>
           <span className="rounded bg-blue-100 px-1.5 text-[10px] font-bold text-blue-800">
-            {isArch ? 'Ingress: Laptop 2 (Arch Host)' : 'Ingress: Laptop 1 (VM2 Client)'}
+            Ingress: {ingressLabel}
           </span>
         </div>
         <span className="font-mono text-[10px] text-slate-500">{packet.length} bytes on wire</span>

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 import tempfile
 import time
 from pathlib import Path
@@ -24,6 +25,16 @@ from backend.e2_dissection import ProtocolDissector
 from backend.e3_flows import FlowGrouper
 from backend.e3_flows.correlator import CorrelationHub
 from backend.e4_query import FILTER_FIELDS, QueryEngine
+
+
+def _get_server_lan_ip() -> str:
+    """Auto-detect the machine's primary non-loopback LAN IP."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
 
 
 def _get_probes_status(hub: Any) -> dict[str, Any]:
@@ -127,7 +138,7 @@ def get_hub() -> CorrelationHub:
             # 2. Broadcast to all WebSocket clients
             delay_ms = round(rec.delay_ns / 1_000_000, 3) if rec.delay_ns is not None else None
             client_probe_id = getattr(rec, "client_probe_id", 1)
-            client_id = 0 if client_probe_id == 1 else (1 if client_probe_id == 3 else max(0, client_probe_id - 1))
+            client_id = max(0, client_probe_id - 1) if client_probe_id <= 3 else (client_probe_id - 11 if client_probe_id >= 11 else 0)
 
             client_ip = None
             server_ip = None
@@ -138,12 +149,13 @@ def get_hub() -> CorrelationHub:
                     elif p.get("probe_id") == 2:
                         server_ip = p.get("ip")
 
-            # Fallback for client IP if unknown or local gateway
-            if not client_ip or client_ip in ("192.168.130.1", "127.0.0.1"):
-                client_ip = "10.108.157.186" if client_probe_id == 3 else ("192.168.130.128" if client_probe_id == 1 else (client_ip or "10.108.157.186"))
-
+            # Dynamic fallbacks without legacy hardcoded IPs
+            lan_ip = _get_server_lan_ip()
             if not server_ip or server_ip == "127.0.0.1":
-                server_ip = "192.168.130.129"
+                server_ip = lan_ip if lan_ip != "127.0.0.1" else "127.0.0.1"
+
+            if not client_ip or client_ip == "127.0.0.1":
+                client_ip = lan_ip if (client_probe_id == 2) else f"Probe-{client_probe_id}"
 
             proto = getattr(rec, "proto", "TCP")
             drop_link = getattr(rec, "drop_link", None)

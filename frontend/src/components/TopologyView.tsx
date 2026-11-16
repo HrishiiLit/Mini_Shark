@@ -119,9 +119,9 @@ function Scene() {
         <ProbeNode
           position={getClientPosition(0, 1)}
           color="#94A3B8"
-          title="Awaiting Linux Probe"
+          title="Awaiting Client Probe"
           subtitle="Disconnected · Waiting on :9000"
-          badge="Probe 1 · Standby (VM2)"
+          badge="Probe 1 · Standby"
           tone="slate"
           onClick={() => setFilter('')}
         />
@@ -135,12 +135,28 @@ function Scene() {
         <ProbeNode
           position={SERVER_POS}
           color="#059669"
-          title="Server Node (VM1)"
-          subtitle={probes.probe2_ip && probes.probe2_ip !== '127.0.0.1' ? probes.probe2_ip : '192.168.130.129'}
+          title="Server Node (Probe 2)"
+          subtitle={
+            probes.probe2_ip && probes.probe2_ip !== '127.0.0.1'
+              ? probes.probe2_ip
+              : typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+                ? window.location.hostname
+                : '127.0.0.1'
+          }
           badge="Probe 2 · Egress · LIVE"
           tone="green"
           rippleKey={serverRipple}
-          onClick={() => setFilter(`ip.dst == ${probes.probe2_ip && probes.probe2_ip !== '127.0.0.1' ? probes.probe2_ip : '192.168.130.129'}`)}
+          onClick={() =>
+            setFilter(
+              `ip.dst == ${
+                probes.probe2_ip && probes.probe2_ip !== '127.0.0.1'
+                  ? probes.probe2_ip
+                  : typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+                    ? window.location.hostname
+                    : '127.0.0.1'
+              }`
+            )
+          }
         />
       ) : (
         <ProbeNode
@@ -148,7 +164,7 @@ function Scene() {
           color="#94A3B8"
           title="Awaiting Server Probe"
           subtitle="Disconnected · Waiting on :9000"
-          badge="Probe 2 · Standby (VM1)"
+          badge="Probe 2 · Standby"
           tone="slate"
           onClick={() => setFilter('')}
         />

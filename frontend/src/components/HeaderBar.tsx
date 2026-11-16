@@ -24,19 +24,19 @@ export function HeaderBar() {
   const p2Online = probes.probe2_connected || demoMode
 
   const clientProbes = (probes.active_clients || []).filter((p) => p.probe_id !== 2)
-  const archProbe = clientProbes.find((p) => p.probe_id === 3)
-  const vm2Probe = clientProbes.find((p) => p.probe_id === 1)
-  const hasArch = archProbe != null
-  const hasVM2 = vm2Probe != null || probes.probe1_connected
-
-  const archIp = archProbe?.ip && archProbe.ip !== '192.168.130.1' ? archProbe.ip : '10.108.157.186'
-  const vm2Ip = probes.probe1_ip || vm2Probe?.ip || '192.168.130.128'
-  const serverIp = probes.probe2_ip && probes.probe2_ip !== '127.0.0.1' ? probes.probe2_ip : '192.168.130.129'
+  const serverIp =
+    probes.probe2_ip && probes.probe2_ip !== '127.0.0.1'
+      ? probes.probe2_ip
+      : typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+        ? window.location.hostname
+        : '127.0.0.1'
 
   const quickFilters = [
     { label: 'All Traffic', filter: '' },
-    { label: 'Arch Host', filter: `ip.src == ${archIp} || ip.dst == ${archIp}` },
-    { label: 'VM2 Client', filter: `ip.src == ${vm2Ip} || ip.dst == ${vm2Ip}` },
+    ...clientProbes.slice(0, 2).map((cp, idx) => ({
+      label: `Client ${idx + 1} (P${cp.probe_id})`,
+      filter: `ip.src == ${cp.ip} || ip.dst == ${cp.ip}`,
+    })),
     { label: 'HTTP Only', filter: 'http' },
     { label: 'DNS Queries', filter: 'dns' },
     { label: 'Ping (ICMP)', filter: 'icmp' },
@@ -70,20 +70,24 @@ export function HeaderBar() {
 
         {/* Probe Health Indicator Pills */}
         <div className="flex flex-wrap items-center gap-1.5">
-          {/* Probe 1 (VM2 Client) */}
-          <ProbeIndicator
-            label="Probe 1 (VM2)"
-            ip={vm2Ip}
-            online={p1Online || hasVM2}
-            color="blue"
-          />
-          {/* Probe 3 (Arch Host) */}
-          <ProbeIndicator
-            label="Probe 3 (Arch Host)"
-            ip={archIp}
-            online={hasArch}
-            color="emerald"
-          />
+          {clientProbes.length > 0 ? (
+            clientProbes.map((cp, idx) => (
+              <ProbeIndicator
+                key={cp.probe_id}
+                label={`Probe ${cp.probe_id} (Client ${idx + 1})`}
+                ip={cp.ip}
+                online={true}
+                color={idx % 2 === 0 ? 'blue' : 'emerald'}
+              />
+            ))
+          ) : (
+            <ProbeIndicator
+              label="Probe 1 (Client)"
+              ip={probes.probe1_ip || 'Waiting...'}
+              online={p1Online}
+              color="blue"
+            />
+          )}
           {/* Probe 2 (Server Hub) */}
           <ProbeIndicator
             label="Probe 2 (Server)"
@@ -155,7 +159,7 @@ export function HeaderBar() {
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Apply a display filter ... e.g. ip.src == 10.108.157.186, tcp, http, drop"
+              placeholder="Apply a display filter ... e.g. tcp, http, drop, dns"
               className={`w-full rounded border py-1 pl-7 pr-7 font-mono text-[11.5px] text-slate-900 shadow-inner outline-none transition ${
                 filter
                   ? 'border-emerald-500 bg-[#E8F8F5] focus:ring-1 focus:ring-emerald-400'
