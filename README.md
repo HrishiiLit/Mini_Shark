@@ -49,7 +49,13 @@ Instead of full packet mirroring (like ERSPAN/GRE), Mini-Shark ships metadata on
 
 ### 1. Central Server Hub (Backend `:8001` + Telemetry `:9000` + UI `:5173`)
 
-**Linux / macOS:**
+**All-in-One Automated Run (Linux Server Hub):**
+```bash
+./start_server.sh
+```
+*(Runs Backend API, E3 Hub, React UI, and local Egress Probe 2 together in a single command, automatically opens firewall ports, detects LAN IP, prompts for Method A routing, and handles graceful Ctrl+C teardown. Run `./stop_server.sh` to stop if backgrounded).*
+
+**Manual Run (Linux / macOS):**
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -83,11 +89,10 @@ sudo python3 run_probe.py --server 127.0.0.1:9000 --role server
 python run_probe.py --server 127.0.0.1:9000 --role server
 ```
 
-### 2. Deploy Across 3 Laptops First, Then Scale to 8–50 PCs
+### 2. Physical Lab Deployment & 4-Laptop Testbed
 
-Follow the staged physical deployment guide in **[`docs/physical_lab_setup.md`](docs/physical_lab_setup.md)**:
-* **Stage 1 (3-Laptop Pilot):** Server Hub Laptop (`Probe 2`) + Linux Router Laptop (`Probe 10`, pure L3 forwarding with `scripts/setup_router.sh`) + Client Laptop (`Auto Probe ID`).
-* **Stage 2 (8 to 50 Physical PCs):** Attach multiple client PCs to the Router's Link 1 switch; run `./run_probe.sh --server <SERVER_IP>:9000` (Linux) or `run_probe.bat --server <SERVER_IP>:9000` (Windows) with zero manual probe ID collisions.
+* **4-Laptop Physical Runbook:** See **[`docs/four_laptop_deployment_guide.md`](docs/four_laptop_deployment_guide.md)** for one-command scripts (`start_server.sh`, `start_router.bat`, `start_client_linux.sh`, `start_client_windows.bat`) with interactive terminal prompts and fault-injection control benches.
+* **Staged Scale-Out (3 Laptops → 8–50 PCs):** See **[`docs/physical_lab_setup.md`](docs/physical_lab_setup.md)** for two-subnet hardware routing and lab switch scaling.
 
 ---
 
