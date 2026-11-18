@@ -105,9 +105,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ------------------------------------------------------------------------------
-# 5. Launch Probe and Optional Traffic Receiver
+# 5. Launch Probe and Traffic Receiver
 # ------------------------------------------------------------------------------
 $probeScript = Join-Path $ScriptDir "run_probe.py"
+$receiverScript = Join-Path $ScriptDir "scripts\traffic_receiver.py"
 $receiverProcess = $null
 $trafficProcess = $null
 
@@ -118,10 +119,23 @@ if ($Mode -eq 1) {
     Write-Host "  [✓] Egress Probe 2 running in monitor window (PID: $($probeProcess.Id))" -ForegroundColor Green
     Write-Host "      Observing incoming packets from Client 1 via Router" -ForegroundColor Gray
 
-    # Launch lightweight background HTTP server on port 8000 for realistic two-way responses
-    Write-Host "`n[4/4] Starting local HTTP receiver service on port 8000..." -ForegroundColor Cyan
-    $receiverProcess = Start-Process python -ArgumentList "-m http.server 8000" -WindowStyle Minimized -PassThru
-    Write-Host "  [✓] Local HTTP service active on port 8000 (PID: $($receiverProcess.Id))" -ForegroundColor Green
+    # Ensure Windows Firewall allows incoming HTTP (8000, 8001), UDP (9500), and ICMP Ping
+    Write-Host "`n[*] Configuring Windows Firewall to allow incoming test traffic..." -ForegroundColor Cyan
+    New-NetFirewallRule -DisplayName "MiniShark-Allow-HTTP" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8000,8001 -Profile Any -ErrorAction SilentlyContinue | Out-Null
+    New-NetFirewallRule -DisplayName "MiniShark-Allow-UDP" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 9500 -Profile Any -ErrorAction SilentlyContinue | Out-Null
+    New-NetFirewallRule -DisplayName "MiniShark-Allow-ICMP" -Direction Inbound -Action Allow -Protocol ICMPv4 -Profile Any -ErrorAction SilentlyContinue | Out-Null
+    Write-Host "  • Windows Firewall allow rules (TCP 8000/8001, UDP 9500, ICMP): ACTIVE" -ForegroundColor Green
+
+    # Launch dual HTTP + UDP receiver service with live receipts
+    Write-Host "`n[4/4] Starting Multi-Protocol Traffic Receiver (HTTP :8000 + UDP :9500)..." -ForegroundColor Cyan
+    if (Test-Path $receiverScript) {
+        $receiverProcess = Start-Process python -ArgumentList "`"$receiverScript`" --http-port 8000 --udp-port 9500" -PassThru
+        Write-Host "  [✓] Traffic Receiver running in monitor window (PID: $($receiverProcess.Id))" -ForegroundColor Green
+        Write-Host "      Live HTTP GET & UDP stream receipts will appear in that window!" -ForegroundColor Gray
+    } else {
+        $receiverProcess = Start-Process python -ArgumentList "-m http.server 8000" -WindowStyle Minimized -PassThru
+        Write-Host "  [✓] Local HTTP fallback service active on port 8000 (PID: $($receiverProcess.Id))" -ForegroundColor Green
+    }
 } else {
     # Concurrent Sender Mode: Probe 12 (Ingress)
     Write-Host "`n[3/4] Launching Client Probe 12 (Connecting to ${HubIP}:9000)..." -ForegroundColor Cyan
@@ -153,8 +167,11 @@ function Cleanup-And-Exit {
         route delete $Client1IP 2>$null | Out-Null
     }
 
-    # Clear any inbound drop rule
+    # Clear firewall rules
     Remove-NetFirewallRule -DisplayName "MiniShark-Client2-Drop" -ErrorAction SilentlyContinue
+    Remove-NetFirewallRule -DisplayName "MiniShark-Allow-HTTP" -ErrorAction SilentlyContinue
+    Remove-NetFirewallRule -DisplayName "MiniShark-Allow-UDP" -ErrorAction SilentlyContinue
+    Remove-NetFirewallRule -DisplayName "MiniShark-Allow-ICMP" -ErrorAction SilentlyContinue
 
     Write-Host "[✓] Client 2 restored to clean state. Exiting." -ForegroundColor Green
     exit 0

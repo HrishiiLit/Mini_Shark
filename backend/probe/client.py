@@ -78,7 +78,8 @@ class TelemetryClient:
                 )
                 print(
                     f"  [Probe {self.probe_id}] Connected to E3 server "
-                    f"at {self.host}:{self.port}"
+                    f"at {self.host}:{self.port}",
+                    flush=True,
                 )
                 return
             except (ConnectionRefusedError, OSError) as exc:
@@ -88,7 +89,8 @@ class TelemetryClient:
                 )
                 print(
                     f"  [Probe {self.probe_id}] Attempt {attempt}/{self.max_retries} "
-                    f"failed: {exc}. Retrying in {delay:.0f}s..."
+                    f"failed: {exc}. Retrying in {delay:.0f}s...",
+                    flush=True,
                 )
                 time.sleep(delay)
                 delay = min(delay * 2, 30)  # exponential backoff, cap at 30s

@@ -57,15 +57,15 @@ def run_probe(
     if iface and iface != iface_name:
         print(f"  [Probe {probe_id}] Notice: interface '{iface}' unavailable; using '{iface_name}'")
 
-    print(f"\n{SEP}")
-    print(f"  Mini-Shark Probe {probe_id}")
-    print(SEP)
-    print(f"  OS          : {platform.system()}")
-    print(f"  Interface   : {iface_name}")
-    print(f"  E3 Server   : {host}:{port}")
-    print(f"  BPF filter  : {bpf_filter or '(none — capture everything)'}")
-    print(f"  Algorithm   : BLAKE2b-64")
-    print(f"{SEP}")
+    print(f"\n{SEP}", flush=True)
+    print(f"  Mini-Shark Probe {probe_id}", flush=True)
+    print(SEP, flush=True)
+    print(f"  OS          : {platform.system()}", flush=True)
+    print(f"  Interface   : {iface_name}", flush=True)
+    print(f"  E3 Server   : {host}:{port}", flush=True)
+    print(f"  BPF filter  : {bpf_filter or '(none — capture everything)'}", flush=True)
+    print(f"  Algorithm   : BLAKE2b-64", flush=True)
+    print(f"{SEP}", flush=True)
 
     # Connect to telemetry server
     client = TelemetryClient(host=host, port=port, probe_id=probe_id)
@@ -73,10 +73,10 @@ def run_probe(
 
     capturer = get_live_capturer(iface=iface_name, timeout=1.0, target_host=host)
 
-    print(f"\n  [Probe {probe_id}] Backend    : {type(capturer).__name__}")
-    print(f"  [Probe {probe_id}] Live capture started. Press Ctrl+C to stop.\n")
-    print(f"  {'#':<8} {'Layers':<38} {'Fingerprint':<20} {'Info'}")
-    print(f"  {'-'*8} {'-'*38} {'-'*20} {'-'*30}")
+    print(f"\n  [Probe {probe_id}] Backend    : {type(capturer).__name__}", flush=True)
+    print(f"  [Probe {probe_id}] Live capture started. Press Ctrl+C to stop.\n", flush=True)
+    print(f"  {'#':<8} {'Layers':<38} {'Fingerprint':<20} {'Info'}", flush=True)
+    print(f"  {'-'*8} {'-'*38} {'-'*20} {'-'*30}", flush=True)
 
     seq = 0
     sent = 0
@@ -180,9 +180,9 @@ def run_probe(
                     if filt in ("dns",) and "dns" not in layer_names:
                         continue
                     if filt in ("http",) and "http" not in layer_names:
-                        # Check if any TCP port is 80, 8080, or 8000
+                        # Check if any TCP port is 80, 8080, 8000, or 8001
                         has_http_port = any(
-                            l.fields.get("src_port") in (80, 8080, 8000) or l.fields.get("dst_port") in (80, 8080, 8000)
+                            l.fields.get("src_port") in (80, 8080, 8000, 8001) or l.fields.get("dst_port") in (80, 8080, 8000, 8001)
                             for l in decoded.layers if l.name == "TCP"
                         )
                         if not has_http_port:
@@ -251,7 +251,7 @@ def run_probe(
                             break
                         if layer.name == "TCP":
                             info = f"{layer.fields.get('src_port','')} → {layer.fields.get('dst_port','')}"
-                    print(f"  {seq:<8} {layers[:38]:<38} {fp_short:<20} {info}")
+                    print(f"  {seq:<8} {layers[:38]:<38} {fp_short:<20} {info}", flush=True)
 
             # Condition 2: Timer deadline expired (20ms) with pending records -> flush immediately
             if batch_count > 0 and (time.time() - last_flush_time >= _BATCH_FLUSH_INTERVAL_S):

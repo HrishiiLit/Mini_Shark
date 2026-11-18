@@ -45,11 +45,14 @@ while [ -z "${SERVER_IP}" ]; do
     read -r SERVER_IP
 done
 
-# Enable IP forwarding
-echo -e "\n${CLR_CYAN}[1/2] Enabling IPv4 packet forwarding (No NAT)...${CLR_RESET}"
+# Enable IP forwarding and disable ICMP redirects
+echo -e "\n${CLR_CYAN}[1/2] Enabling IPv4 packet forwarding (No NAT) & Hairpin routing...${CLR_RESET}"
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
+sysctl -w net.ipv4.conf.all.send_redirects=0 >/dev/null 2>&1 || true
+sysctl -w net.ipv4.conf.default.send_redirects=0 >/dev/null 2>&1 || true
 iptables -P FORWARD ACCEPT 2>/dev/null || true
 echo -e "  • IPv4 Forwarding: ${CLR_GREEN}Enabled${CLR_RESET}"
+echo -e "  • ICMP Redirects : ${CLR_GREEN}Disabled (Hairpin safe)${CLR_RESET}"
 
 # Launch Probe 10 in background
 echo -e "\n${CLR_CYAN}[2/2] Launching Transit Probe 10 (Connecting to ${SERVER_IP}:9000)...${CLR_RESET}"
@@ -58,7 +61,7 @@ mkdir -p "${LOG_DIR}"
 ROUTER_PROBE_LOG="${LOG_DIR}/router_probe.log"
 : > "${ROUTER_PROBE_LOG}"
 
-python3 "${SCRIPT_DIR}/run_probe.py" --server "${SERVER_IP}:9000" --role router > "${ROUTER_PROBE_LOG}" 2>&1 &
+python3 -u "${SCRIPT_DIR}/run_probe.py" --server "${SERVER_IP}:9000" --role router > "${ROUTER_PROBE_LOG}" 2>&1 &
 PROBE_PID=$!
 echo -e "  [✓] Probe 10 started (PID: ${PROBE_PID}) -> Logs: ${ROUTER_PROBE_LOG}"
 
