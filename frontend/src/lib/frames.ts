@@ -66,6 +66,7 @@ export interface FrameSpec {
   srcIp?: string
   dstIp?: string
   clientId?: number
+  clientLabel?: string
   hash64?: string
 }
 
@@ -299,6 +300,7 @@ export function buildPacket(spec: FrameSpec): Packet {
     byteKinds: kinds,
     note: spec.note,
     clientId: spec.clientId,
+    clientLabel: spec.clientLabel,
   }
 }
 

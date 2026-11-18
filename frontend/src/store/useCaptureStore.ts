@@ -471,16 +471,19 @@ if (typeof window !== 'undefined') {
             const kind: Flight['kind'] = isDrop ? 'drop' : isSlow ? 'slow' : 'normal'
 
             // Dynamic client attribution:
+            const isRouter = msg.probe_id === 10 || msg.client_id === -1
             let clientIdx = 0
-            if (msg.client_id !== undefined && msg.client_id < state.clientCount) {
+            if (isRouter) {
+              clientIdx = -1
+            } else if (msg.client_id !== undefined && msg.client_id >= 0 && msg.client_id < state.clientCount) {
               clientIdx = msg.client_id
             } else if (msg.probe_id) {
               const foundIdx = state.clients.findIndex((c) => c.probeBadge?.includes(`Probe ${msg.probe_id}`))
               if (foundIdx >= 0) clientIdx = foundIdx
             }
 
-            const client = state.clients[clientIdx] || state.clients[0]
-            const srcIp = msg.src_ip || client?.ip || `Probe-${msg.probe_id || 1}`
+            const client = isRouter ? null : (state.clients[clientIdx] || state.clients[0])
+            const srcIp = msg.src_ip || client?.ip || (isRouter ? 'Router' : `Probe-${msg.probe_id || 1}`)
             const p2Ip = state.probesStatus.probe2_ip
             const fallbackServerIp =
               typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
@@ -510,7 +513,9 @@ if (typeof window !== 'undefined') {
                 ? 100000 + msg.probe1_seq * 1460
                 : undefined
 
-            const clientLabel = client?.name || `Client ${clientIdx + 1} (Probe ${msg.probe_id || 1})`
+            const clientLabel = isRouter
+              ? `Router (Probe 10)`
+              : (client?.name || `Client ${clientIdx + 1} (Probe ${msg.probe_id || 1})`)
             const egressIp = state.probesStatus.probe2_ip
             const destLabel = egressIp && egressIp !== '127.0.0.1' ? `Destination (${egressIp})` : 'Destination (Probe 2)'
             const dropNote = isDrop
@@ -539,6 +544,7 @@ if (typeof window !== 'undefined') {
               srcIp,
               dstIp,
               clientId: clientIdx,
+              clientLabel,
               hash64: msg.fingerprint || undefined,
             })
 
