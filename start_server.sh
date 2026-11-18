@@ -123,26 +123,13 @@ fi
 # ------------------------------------------------------------------------------
 # 2b. Egress Probe 2 Configuration (Local vs Remote Client 2)
 # ------------------------------------------------------------------------------
-echo -e "\n${CLR_CYAN}[2b/5] Configuring Egress Probe 2 Mode...${CLR_RESET}"
-echo -e "  • Client-to-Client Mode : Probe 2 runs remotely on ${CLR_BOLD}Client 2${CLR_RESET}."
-echo -e "  • Client-to-Server Mode : Probe 2 runs locally on this Server Hub."
-RUN_LOCAL_PROBE="N"
-if [ "$1" = "--with-probe" ]; then
-    RUN_LOCAL_PROBE="Y"
-elif [ "$1" = "--hub-only" ]; then
+echo -e "\n${CLR_CYAN}[2b/5] Configuring Local Egress Probe 2...${CLR_RESET}"
+RUN_LOCAL_PROBE="Y"
+if [ "$1" = "--no-probe" ] || [ "$1" = "--hub-only" ]; then
     RUN_LOCAL_PROBE="N"
+    echo -e "  • Egress Probe 2: ${CLR_YELLOW}Disabled via CLI flag${CLR_RESET}"
 else
-    echo -ne "${CLR_YELLOW}Run local Egress Probe 2 on this Server? (y/N) [Default N for Client-to-Client]: ${CLR_RESET}"
-    read -r resp_probe
-    if [[ "$resp_probe" =~ ^[Yy]$ ]]; then
-        RUN_LOCAL_PROBE="Y"
-    fi
-fi
-
-if [ "${RUN_LOCAL_PROBE}" = "Y" ]; then
-    echo -e "  • Egress Probe 2: ${CLR_GREEN}Local (Will run on Server Hub)${CLR_RESET}"
-else
-    echo -e "  • Egress Probe 2: ${CLR_GREEN}Remote (Awaiting Client 2 Probe 2 connection over :9000)${CLR_RESET}"
+    echo -e "  • Egress Probe 2: ${CLR_GREEN}Enabled (Running Probe 2 on this Server Hub)${CLR_RESET}"
 fi
 
 # ------------------------------------------------------------------------------

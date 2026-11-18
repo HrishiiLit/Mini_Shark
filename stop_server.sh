@@ -27,13 +27,17 @@ fi
 # Stop any dangling processes by pattern
 pkill -f "uvicorn backend.main:app" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
-sudo pkill -f "run_probe.py.*--role server" 2>/dev/null || true
+pkill -f "run_probe.py.*--role server" 2>/dev/null || true
+sudo -n pkill -f "run_probe.py.*--role server" 2>/dev/null || true
 
 # Free ports if fuser is installed
 if command -v fuser >/dev/null 2>&1; then
-    sudo fuser -k 8001/tcp 2>/dev/null || true
-    sudo fuser -k 9000/tcp 2>/dev/null || true
-    sudo fuser -k 5173/tcp 2>/dev/null || true
+    fuser -k 8001/tcp 2>/dev/null || true
+    fuser -k 9000/tcp 2>/dev/null || true
+    fuser -k 5173/tcp 2>/dev/null || true
+    sudo -n fuser -k 8001/tcp 2>/dev/null || true
+    sudo -n fuser -k 9000/tcp 2>/dev/null || true
+    sudo -n fuser -k 5173/tcp 2>/dev/null || true
 fi
 
 echo -e "${CLR_GREEN}[✓] All server processes and ports cleared.${CLR_RESET}"

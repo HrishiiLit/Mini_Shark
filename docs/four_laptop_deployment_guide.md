@@ -530,6 +530,17 @@ ping <SERVER_IP> -t
 
 ## 7. Troubleshooting Quick Reference
 
+* **High Drop Rate (e.g. 70%+ Unmatched Packets):**
+  1. **Ensure Egress Probe 2 is running:** In Client-to-Server traffic mode, Probe 2 must be running on Laptop 4 (enabled by default in `./start_server.sh`). If Probe 2 is not capturing server egress, all packets will time out and be reported as drops!
+  2. **Check System Clocks (NTP):** If laptops have unsynchronized physical clocks (>500 ms skew), `ΔT = T2 - T1` will trigger clock skew warnings (`flags: 1`). Resynchronize clocks on all machines:
+     * **Linux (Server / Arch):** `sudo timedatectl set-ntp true && sudo systemctl restart systemd-timesyncd`
+     * **Windows (Router / Client 2):** In Admin PowerShell: `w32tm /resync /nowait`
+  *(Note: The E3 correlator calculates in-flight deadlines against hub receipt time to prevent clock skew from causing instant timeouts, but NTP sync ensures accurate sub-millisecond one-way latency measurements).*
+
+* **Router Traffic & Client Attribution:**
+  * Probe 10 is the Intermediate Router. Traffic observed only at Probe 10 or originating from the router (e.g., diagnostic pings from Laptop 3) is displayed with the purple `[Router]` badge (IP `10.108.x.x`), distinguishing it from Client 1 (`[Client 1]`, Probe 11) and Client 2 (`[Client 2]`, Probe 12).
+  * 24-byte telemetry wire records omit transport ports for bandwidth efficiency; the dashboard displays synthetic flow identifiers (`:54210 -> :80`) for generic TCP flows unless specific application ports are recognized.
+
 * **Firewall blocks on Linux Server:** Check `sudo ufw status` or `sudo iptables -L -n`. Ensure ports `8001`, `9000`, `5173` are allowed.
 * **Windows Router doesn't forward packets:** Ensure PowerShell was opened as **Administrator** when executing `setup_windows_router.ps1 -Action enable-routing`. Run `powershell -File .\scripts\setup_windows_router.ps1 -Action status` to confirm `IPEnableRouter = 1` and `RemoteAccess` is running.
 * **Npcap permissions on Windows:** Ensure Command Prompt was launched using *"Run as Administrator"*, otherwise raw socket capture is denied by Windows security.
