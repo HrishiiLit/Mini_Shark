@@ -121,6 +121,31 @@ if [[ "${CONFIGURE_ROUTES}" =~ ^[Yy]$ ]]; then
 fi
 
 # ------------------------------------------------------------------------------
+# 2b. Egress Probe 2 Configuration (Local vs Remote Client 2)
+# ------------------------------------------------------------------------------
+echo -e "\n${CLR_CYAN}[2b/5] Configuring Egress Probe 2 Mode...${CLR_RESET}"
+echo -e "  • Client-to-Client Mode : Probe 2 runs remotely on ${CLR_BOLD}Client 2${CLR_RESET}."
+echo -e "  • Client-to-Server Mode : Probe 2 runs locally on this Server Hub."
+RUN_LOCAL_PROBE="N"
+if [ "$1" = "--with-probe" ]; then
+    RUN_LOCAL_PROBE="Y"
+elif [ "$1" = "--hub-only" ]; then
+    RUN_LOCAL_PROBE="N"
+else
+    echo -ne "${CLR_YELLOW}Run local Egress Probe 2 on this Server? (y/N) [Default N for Client-to-Client]: ${CLR_RESET}"
+    read -r resp_probe
+    if [[ "$resp_probe" =~ ^[Yy]$ ]]; then
+        RUN_LOCAL_PROBE="Y"
+    fi
+fi
+
+if [ "${RUN_LOCAL_PROBE}" = "Y" ]; then
+    echo -e "  • Egress Probe 2: ${CLR_GREEN}Local (Will run on Server Hub)${CLR_RESET}"
+else
+    echo -e "  • Egress Probe 2: ${CLR_GREEN}Remote (Awaiting Client 2 Probe 2 connection over :9000)${CLR_RESET}"
+fi
+
+# ------------------------------------------------------------------------------
 # 3. Python Virtualenv & Frontend Dependencies
 # ------------------------------------------------------------------------------
 echo -e "\n${CLR_BOLD}[3/5] Verifying dependencies...${CLR_RESET}"
@@ -230,12 +255,15 @@ FRONTEND_PID=$!
 echo "${FRONTEND_PID}" >> "${PID_FILE}"
 echo -e "  [2] React UI Dashboard started (PID: ${FRONTEND_PID}) -> Logs: ${FRONTEND_LOG}"
 
-# --- Launch Component 3: Local Egress Probe 2 (:9000) ---
-# Probe connects to local E3 hub at 127.0.0.1:9000 with role server (Probe ID 2)
-${SUDO_PREFIX} python3 "${SCRIPT_DIR}/run_probe.py" --server 127.0.0.1:9000 --role server > "${PROBE_LOG}" 2>&1 &
-PROBE_PID=$!
-echo "${PROBE_PID}" >> "${PID_FILE}"
-echo -e "  [3] Egress Probe 2 started     (PID: ${PROBE_PID}) -> Logs: ${PROBE_LOG}"
+# --- Launch Component 3: Egress Probe 2 (:9000) ---
+if [ "${RUN_LOCAL_PROBE}" = "Y" ]; then
+    ${SUDO_PREFIX} python3 "${SCRIPT_DIR}/run_probe.py" --server 127.0.0.1:9000 --role server > "${PROBE_LOG}" 2>&1 &
+    PROBE_PID=$!
+    echo "${PROBE_PID}" >> "${PID_FILE}"
+    echo -e "  [3] Local Egress Probe 2 started (PID: ${PROBE_PID}) -> Logs: ${PROBE_LOG}"
+else
+    echo -e "  [3] Local Egress Probe 2: ${CLR_GREEN}Disabled (Running Remotely on Client 2)${CLR_RESET}"
+fi
 
 echo ""
 echo -e "${CLR_GREEN}${CLR_BOLD}======================================================================${CLR_RESET}"
@@ -245,7 +273,11 @@ echo -e "  • Dashboard (Local)   : ${CLR_BOLD}http://localhost:5173${CLR_RESET
 echo -e "  • Dashboard (Network) : ${CLR_BOLD}${CLR_CYAN}http://${SERVER_IP}:5173${CLR_RESET}"
 echo -e "  • Backend REST API    : ${CLR_BOLD}http://${SERVER_IP}:8001${CLR_RESET}"
 echo -e "  • E3 Telemetry Hub    : ${CLR_BOLD}tcp://${SERVER_IP}:9000${CLR_RESET}"
-echo -e "  • Local Egress Probe  : ${CLR_BOLD}Probe 2 (Active)${CLR_RESET}"
+if [ "${RUN_LOCAL_PROBE}" = "Y" ]; then
+    echo -e "  • Egress Probe Mode   : ${CLR_BOLD}Local Probe 2 (Active)${CLR_RESET}"
+else
+    echo -e "  • Egress Probe Mode   : ${CLR_BOLD}Remote (Listening on :9000 for Client 2 Probe 2)${CLR_RESET}"
+fi
 echo ""
 echo -e "${CLR_YELLOW}Press Ctrl+C at any time to cleanly stop all 3 services.${CLR_RESET}"
 echo -e "----------------------------------------------------------------------"

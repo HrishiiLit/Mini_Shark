@@ -98,9 +98,9 @@ export function HeaderBar() {
               color="emerald"
             />
           )}
-          {/* Probe 2 (Server Hub) */}
+          {/* Probe 2 (Egress / Destination) */}
           <ProbeIndicator
-            label="Probe 2 (Server)"
+            label="Probe 2 (Egress)"
             ip={serverIp}
             online={p2Online}
             color="indigo"

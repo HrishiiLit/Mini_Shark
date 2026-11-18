@@ -12,6 +12,7 @@
 
 param (
     [string]$ServerIP = "",
+    [string]$DestIP = "",
     [string]$ClientIP = ""
 )
 
@@ -120,11 +121,12 @@ while ($true) {
     Write-Host "`n======================================================================" -ForegroundColor Cyan
     Write-Host "             ROUTER FAULT INJECTION & CONTROL BENCH                   " -ForegroundColor Cyan
     Write-Host "======================================================================" -ForegroundColor Cyan
-    Write-Host "  Server Hub IP : $ServerIP" -ForegroundColor White
-    Write-Host "  Probe 10 PID  : $($probeProcess.Id) (Running: $(if (-not $probeProcess.HasExited) {'YES'} else {'NO (Exited!)'}))" -ForegroundColor Gray
+    Write-Host "  Telemetry Hub IP: $ServerIP" -ForegroundColor White
+    Write-Host "  Destination IP  : $(if ($DestIP) {$DestIP} else {'(Defaults to Server Hub)'})" -ForegroundColor White
+    Write-Host "  Probe 10 PID    : $($probeProcess.Id) (Running: $(if (-not $probeProcess.HasExited) {'YES'} else {'NO (Exited!)'}))" -ForegroundColor Gray
     Write-Host "----------------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host "  [1] Inject Link 2 Drop  (Router ──✖──> Server Hub)" -ForegroundColor Yellow
-    Write-Host "  [2] Inject Link 1 Drop  (Client ──✖──> Router)" -ForegroundColor Yellow
+    Write-Host "  [1] Inject Link 2 Drop  (Router ──✖──> Destination / Client 2)" -ForegroundColor Yellow
+    Write-Host "  [2] Inject Link 1 Drop  (Client 1 ──✖──> Router)" -ForegroundColor Yellow
     Write-Host "  [3] Clear All Drops     (Restore 100% normal transmission)" -ForegroundColor Green
     Write-Host "  [4] Show Router & Drop Status" -ForegroundColor White
     Write-Host "  [5] Restart Probe 10" -ForegroundColor White
@@ -136,13 +138,18 @@ while ($true) {
 
     switch ($choice) {
         "1" {
-            Write-Host "`n[!] Activating Link 2 Drop towards Server ($ServerIP)..." -ForegroundColor Yellow
-            & powershell -ExecutionPolicy Bypass -File $setupRouterScript -Action drop-link2 -ServerIP $ServerIP
-            Write-Host "➜ Packets will now turn RED on Dashboard: 'Dropped on Link 2: Router ──✖──> Server Hub'" -ForegroundColor Magenta
+            if ([string]::IsNullOrWhiteSpace($DestIP)) {
+                Write-Host "Enter Destination Target IP (Client 2) to drop [e.g. 192.168.1.16, or Enter for Server Hub $ServerIP]: " -NoNewline -ForegroundColor Yellow
+                $inputDest = (Read-Host).Trim()
+                if (-not [string]::IsNullOrWhiteSpace($inputDest)) { $DestIP = $inputDest } else { $DestIP = $ServerIP }
+            }
+            Write-Host "`n[!] Activating Link 2 Drop towards Destination ($DestIP)..." -ForegroundColor Yellow
+            & powershell -ExecutionPolicy Bypass -File $setupRouterScript -Action drop-link2 -ServerIP $DestIP
+            Write-Host "➜ Packets will now turn RED on Dashboard: 'Dropped on Link 2: Router ──✖──> Destination (Probe 2)'" -ForegroundColor Magenta
         }
         "2" {
             if ([string]::IsNullOrWhiteSpace($ClientIP)) {
-                Write-Host "Enter Client IP to drop [e.g. 192.168.1.15]: " -NoNewline -ForegroundColor Yellow
+                Write-Host "Enter Client 1 IP to drop [e.g. 192.168.1.15]: " -NoNewline -ForegroundColor Yellow
                 $ClientIP = (Read-Host).Trim()
             }
             if (-not [string]::IsNullOrWhiteSpace($ClientIP)) {

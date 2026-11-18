@@ -47,16 +47,17 @@ fi
 # ------------------------------------------------------------------------------
 # 1. Interactive IP Configuration
 # ------------------------------------------------------------------------------
-SERVER_IP="${1:-}"
+HUB_IP="${1:-}"
 ROUTER_IP="${2:-}"
+DEST_IP="${3:-}"
 
-if [ -z "${SERVER_IP}" ]; then
-    echo -ne "${CLR_YELLOW}Enter Central Server Hub IP (Laptop 4) [e.g. 192.168.1.20]: ${CLR_RESET}"
-    read -r SERVER_IP
+if [ -z "${HUB_IP}" ]; then
+    echo -ne "${CLR_YELLOW}Enter Central Telemetry Hub IP (Laptop 4) [e.g. 192.168.1.20]: ${CLR_RESET}"
+    read -r HUB_IP
 fi
-while [ -z "${SERVER_IP}" ]; do
-    echo -ne "${CLR_RED}Server IP cannot be empty. Please enter Server IP: ${CLR_RESET}"
-    read -r SERVER_IP
+while [ -z "${HUB_IP}" ]; do
+    echo -ne "${CLR_RED}Hub IP cannot be empty. Please enter Hub IP: ${CLR_RESET}"
+    read -r HUB_IP
 done
 
 if [ -z "${ROUTER_IP}" ]; then
@@ -68,15 +69,21 @@ while [ -z "${ROUTER_IP}" ]; do
     read -r ROUTER_IP
 done
 
+if [ -z "${DEST_IP}" ]; then
+    echo -ne "${CLR_YELLOW}Enter Destination Target IP (Client 2) [Press Enter for Hub IP ${HUB_IP}]: ${CLR_RESET}"
+    read -r DEST_IP
+    DEST_IP="${DEST_IP:-${HUB_IP}}"
+fi
+
 echo -e "\n${CLR_CYAN}[1/3] Configuring Network & Hairpin Routing...${CLR_RESET}"
 # Disable ICMP redirects
 sudo sysctl -w net.ipv4.conf.all.accept_redirects=0 >/dev/null 2>&1 || true
 sudo sysctl -w net.ipv4.conf.default.accept_redirects=0 >/dev/null 2>&1 || true
 echo -e "  • ICMP redirects: ${CLR_GREEN}Disabled${CLR_RESET}"
 
-# Configure host route
-sudo ip route replace "${SERVER_IP}/32" via "${ROUTER_IP}"
-echo -e "  • Route to Server ${SERVER_IP}/32 via Router ${ROUTER_IP}: ${CLR_GREEN}Configured${CLR_RESET}"
+# Configure host route to Destination via Router
+sudo ip route replace "${DEST_IP}/32" via "${ROUTER_IP}"
+echo -e "  • Route to Target ${DEST_IP}/32 via Router ${ROUTER_IP}: ${CLR_GREEN}Configured${CLR_RESET}"
 
 # ------------------------------------------------------------------------------
 # 2. Launch Client Probe 11
@@ -89,8 +96,8 @@ WORKLOAD_LOG="${LOG_DIR}/client1_workload.log"
 : > "${PROBE_LOG}"
 : > "${WORKLOAD_LOG}"
 
-# Auto probe ID or pass --probe-id 11
-sudo python3 "${SCRIPT_DIR}/run_probe.py" --server "${SERVER_IP}:9000" --probe-id 11 > "${PROBE_LOG}" 2>&1 &
+# Auto probe ID or pass --probe-id 11 streaming to Hub
+sudo python3 "${SCRIPT_DIR}/run_probe.py" --server "${HUB_IP}:9000" --probe-id 11 > "${PROBE_LOG}" 2>&1 &
 PROBE_PID=$!
 echo -e "  [✓] Client Probe 11 started (PID: ${PROBE_PID}) -> Logs: ${PROBE_LOG}"
 
@@ -114,11 +121,11 @@ cleanup() {
 
     # Clear iptables drop rule if set
     if [ "${LINK1_DROP_ACTIVE}" -eq 1 ]; then
-        sudo iptables -D OUTPUT -d "${SERVER_IP}" -m statistic --mode random --probability 0.3 -j DROP 2>/dev/null || true
+        sudo iptables -D OUTPUT -d "${DEST_IP}" -m statistic --mode random --probability 0.3 -j DROP 2>/dev/null || true
     fi
 
     # Remove static route
-    sudo ip route del "${SERVER_IP}/32" 2>/dev/null || true
+    sudo ip route del "${DEST_IP}/32" 2>/dev/null || true
 
     if [ -n "${SUDO_KEEP_ALIVE_PID:-}" ]; then
         kill "${SUDO_KEEP_ALIVE_PID}" 2>/dev/null || true
@@ -145,11 +152,12 @@ while true; do
     echo -e "\n${CLR_CYAN}======================================================================${CLR_RESET}"
     echo -e "${CLR_CYAN}${CLR_BOLD}         CLIENT 1 TEST BENCH & WORKLOAD GENERATOR (ARCH LINUX)        ${CLR_RESET}"
     echo -e "${CLR_CYAN}======================================================================${CLR_RESET}"
-    echo -e "  Server Hub IP  : ${CLR_BOLD}${SERVER_IP}${CLR_RESET}"
-    echo -e "  Router IP      : ${CLR_BOLD}${ROUTER_IP}${CLR_RESET}"
-    echo -e "  Probe 11 PID   : ${PROBE_PID}"
-    echo -e "  Active Workload: $([ -n "${WORKLOAD_PID}" ] && kill -0 "${WORKLOAD_PID}" 2>/dev/null && echo -e "${CLR_GREEN}RUNNING (PID: ${WORKLOAD_PID})${CLR_RESET}" || echo -e "Idle")"
-    echo -e "  Link 1 Drop    : $([ "${LINK1_DROP_ACTIVE}" -eq 1 ] && echo -e "${CLR_RED}ACTIVE (30% DROP)${CLR_RESET}" || echo -e "${CLR_GREEN}CLEAN (0% DROP)${CLR_RESET}")"
+    echo -e "  Telemetry Hub IP: ${CLR_BOLD}${HUB_IP}${CLR_RESET}"
+    echo -e "  Router IP       : ${CLR_BOLD}${ROUTER_IP}${CLR_RESET}"
+    echo -e "  Destination IP  : ${CLR_BOLD}${DEST_IP}${CLR_RESET}"
+    echo -e "  Probe 11 PID    : ${PROBE_PID}"
+    echo -e "  Active Workload : $([ -n "${WORKLOAD_PID}" ] && kill -0 "${WORKLOAD_PID}" 2>/dev/null && echo -e "${CLR_GREEN}RUNNING (PID: ${WORKLOAD_PID})${CLR_RESET}" || echo -e "Idle")"
+    echo -e "  Link 1 Drop     : $([ "${LINK1_DROP_ACTIVE}" -eq 1 ] && echo -e "${CLR_RED}ACTIVE (30% DROP towards ${DEST_IP})${CLR_RESET}" || echo -e "${CLR_GREEN}CLEAN (0% DROP)${CLR_RESET}")"
     echo -e "----------------------------------------------------------------------"
     echo -e "  ${CLR_YELLOW}[1] Start Mixed Workload (HTTP + UDP stream @ 10 pkts/s)${CLR_RESET}"
     echo -e "  ${CLR_YELLOW}[2] Start HTTP Queries Workload (5 req/s)${CLR_RESET}"
@@ -167,39 +175,39 @@ while true; do
     case "$choice" in
         1)
             stop_active_workload
-            echo -e "${CLR_YELLOW}[*] Starting mixed background workload...${CLR_RESET}"
-            python3 "${SCRIPT_DIR}/scripts/traffic_generator.py" --target "${SERVER_IP}" --mode mixed --rate 10 > "${WORKLOAD_LOG}" 2>&1 &
+            echo -e "${CLR_YELLOW}[*] Starting mixed background workload to ${DEST_IP}...${CLR_RESET}"
+            python3 "${SCRIPT_DIR}/scripts/traffic_generator.py" --target "${DEST_IP}" --mode mixed --rate 10 > "${WORKLOAD_LOG}" 2>&1 &
             WORKLOAD_PID=$!
             echo -e "${CLR_GREEN}[✓] Mixed workload running in background (PID: ${WORKLOAD_PID})${CLR_RESET}"
             ;;
         2)
             stop_active_workload
-            echo -e "${CLR_YELLOW}[*] Starting continuous HTTP workload...${CLR_RESET}"
-            python3 "${SCRIPT_DIR}/scripts/traffic_generator.py" --target "${SERVER_IP}" --mode http --rate 5 > "${WORKLOAD_LOG}" 2>&1 &
+            echo -e "${CLR_YELLOW}[*] Starting continuous HTTP workload to ${DEST_IP}...${CLR_RESET}"
+            python3 "${SCRIPT_DIR}/scripts/traffic_generator.py" --target "${DEST_IP}" --mode http --rate 5 > "${WORKLOAD_LOG}" 2>&1 &
             WORKLOAD_PID=$!
             echo -e "${CLR_GREEN}[✓] HTTP workload running in background (PID: ${WORKLOAD_PID})${CLR_RESET}"
             ;;
         3)
             stop_active_workload
-            echo -e "${CLR_YELLOW}[*] Starting high-speed UDP media stream...${CLR_RESET}"
-            python3 "${SCRIPT_DIR}/scripts/traffic_generator.py" --target "${SERVER_IP}" --mode udp-stream --rate 25 > "${WORKLOAD_LOG}" 2>&1 &
+            echo -e "${CLR_YELLOW}[*] Starting high-speed UDP media stream to ${DEST_IP}:9500...${CLR_RESET}"
+            python3 "${SCRIPT_DIR}/scripts/traffic_generator.py" --target "${DEST_IP}" --mode udp-stream --rate 25 > "${WORKLOAD_LOG}" 2>&1 &
             WORKLOAD_PID=$!
             echo -e "${CLR_GREEN}[✓] UDP stream running in background (PID: ${WORKLOAD_PID})${CLR_RESET}"
             ;;
         4)
-            echo -e "${CLR_MAGENTA}[*] Injecting high-entropy DNS exfiltration queries to ${SERVER_IP}:53...${CLR_RESET}"
-            python3 "${SCRIPT_DIR}/test_anomalies.py" --dns --target "${SERVER_IP}" || true
-            echo -e "${CLR_GREEN}[✓] Check Server Dashboard at http://${SERVER_IP}:5173 for DNS_EXFIL_SUSPECTED alert!${CLR_RESET}"
+            echo -e "${CLR_MAGENTA}[*] Injecting high-entropy DNS exfiltration queries to ${DEST_IP}:53...${CLR_RESET}"
+            python3 "${SCRIPT_DIR}/test_anomalies.py" --dns --target "${DEST_IP}" || true
+            echo -e "${CLR_GREEN}[✓] Check Dashboard at http://${HUB_IP}:5173 for DNS_EXFIL_SUSPECTED alert!${CLR_RESET}"
             ;;
         5)
-            echo -e "${CLR_RED}[!] Injecting Link 1 drop (30% random packet drop on Client)...${CLR_RESET}"
-            sudo iptables -A OUTPUT -d "${SERVER_IP}" -m statistic --mode random --probability 0.3 -j DROP
+            echo -e "${CLR_RED}[!] Injecting Link 1 drop (30% random packet drop on Client towards ${DEST_IP})...${CLR_RESET}"
+            sudo iptables -A OUTPUT -d "${DEST_IP}" -m statistic --mode random --probability 0.3 -j DROP
             LINK1_DROP_ACTIVE=1
             echo -e "${CLR_GREEN}[✓] Drop active. Dashboard will show: 'Dropped on Link 1: Client ──✖──> Router'${CLR_RESET}"
             ;;
         6)
             echo -e "${CLR_GREEN}[*] Removing Link 1 drop rule...${CLR_RESET}"
-            sudo iptables -D OUTPUT -d "${SERVER_IP}" -m statistic --mode random --probability 0.3 -j DROP 2>/dev/null || true
+            sudo iptables -D OUTPUT -d "${DEST_IP}" -m statistic --mode random --probability 0.3 -j DROP 2>/dev/null || true
             LINK1_DROP_ACTIVE=0
             echo -e "${CLR_GREEN}[✓] Link 1 restored to 100% normal transmission.${CLR_RESET}"
             ;;

@@ -511,12 +511,14 @@ if (typeof window !== 'undefined') {
                 : undefined
 
             const clientLabel = client?.name || `Client ${clientIdx + 1} (Probe ${msg.probe_id || 1})`
+            const egressIp = state.probesStatus.probe2_ip
+            const destLabel = egressIp && egressIp !== '127.0.0.1' ? `Destination (${egressIp})` : 'Destination (Probe 2)'
             const dropNote = isDrop
               ? (msg.drop_link === 'link_2'
-                  ? `Dropped on Link 2: Router ──✖──> Server Hub (Probe 2)`
+                  ? `Dropped on Link 2: Router ──✖──> ${destLabel}`
                   : msg.drop_link === 'link_1'
                     ? `Dropped on Link 1: ${clientLabel} ──✖──> Router`
-                    : `Dropped on Wire: ${clientLabel} ──✖──> Server Hub (Probe 2)`)
+                    : `Dropped on Wire: ${clientLabel} ──✖──> ${destLabel}`)
               : msg.fingerprint
                 ? `fp: ${msg.fingerprint}`
                 : undefined

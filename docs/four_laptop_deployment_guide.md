@@ -5,33 +5,43 @@ This document provides exact, terminal-by-terminal commands for deploying Mini-S
 
 | Laptop | Role in Topology | Operating System | Primary Components | IP (Example) |
 | --- | --- | --- | --- | --- |
-| **Laptop 4** | **Central Server Hub** | **Linux** ("mrq") (Ubuntu/Debian/Fedora/Arch) | Backend (`:8001`), E3 Hub (`:9000`), React UI (`:5173`), Egress Probe 2 | `192.168.1.20` |
-| **Laptop 3** | **Intermediate Router** | **Windows 10/11** | Pure L3 IP Forwarding (No NAT), Transit Probe 10, Fault Injection | `192.168.1.10` |
-| **Laptop 1** | **Client 1** | **Arch Linux** (Mine) | Client Probe (Auto ID / 11), Traffic Generator (`traffic_generator.py`) | `192.168.1.15` |
-| **Laptop 2** | **Client 2** | **Windows 10/11** | Client Probe (Auto ID / 12), Concurrent Workload (HTTP / Ping) | `192.168.1.16` |
+| **Laptop 1** | **Client 1 (Sender)** | **Arch Linux** (Mine) | Client Probe 11 (Ingress), Workload Generator (`traffic_generator.py`) | `192.168.1.15` |
+| **Laptop 3** | **Intermediate Router** | **Windows 10/11** (or Linux) | Pure L3 IP Forwarding (No NAT), Transit Probe 10, Fault Injection | `192.168.1.10` |
+| **Laptop 2** | **Client 2 (Receiver)** | **Windows 10/11** | Egress Probe 2, Lightweight Receiver Service (HTTP `:8000` / UDP `:9500`) | `192.168.1.16` |
+| **Laptop 4** | **Central Hub / Observatory** | **Linux** ("mrq") (Ubuntu/Debian/Fedora/Arch) | Backend (`:8001`), E3 Telemetry Hub (`:9000`), React 3D UI (`:5173`) | `192.168.1.20` |
 
 ---
 
-## 1. Network Interconnection Architecture
+## 1. Network Interconnection Architecture (Client-to-Client with Out-of-Band Observability)
+
+Mini-Shark operates on a decoupled **Data Plane** and an out-of-band **Control/Telemetry Plane**:
 
 ```text
-[Laptop 1: Arch Linux (Mine)] ──┐
-  (Client Probe 11)             │
-                                ├──▶ [Laptop 3: Windows Router] ────▶ [Laptop 4: Linux Server ("mrq")]
-[Laptop 2: Windows Client] ─────┘    (Pure L3 Forwarding / Probe 10)     (Backend :8001 + E3 :9000)
-  (Client Probe 12)                                                      (Egress Probe 2 + UI :5173)
+┌───────────────────────────────── Data Plane (Application Traffic) ───────────────────────────────┐
+│                                                                                                  │
+│   [Laptop 1: Client 1] ────Link 1────▶ [Laptop 3: Windows Router] ────Link 2────▶ [Laptop 2: Client 2]
+│      (Probe 11 - Ingress)                 (Probe 10 - Transit)                     (Probe 2 - Egress)    │
+│                                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+          │                                         │                                         │
+          └───────────── Out-of-Band Telemetry (24-byte Records over TCP :9000) ──────────────┘
+                                                    ▼
+                                 [Laptop 4: Central Telemetry Hub ("mrq")]
+                                       FastAPI :8001 + E3 Hub :9000
+                                         React + Three.js UI :5173
 ```
 
-### Two Ways to Connect the 4 Laptops:
-
+### Routing & Drop Attribution:
+* **Link 1**: Client 1 $\to$ Router. Drops here are classified as `Dropped on Link 1: Client 1 ──✖──> Router`.
+* **Link 2**: Router $\to$ Client 2. Drops here are classified as `Dropped on Link 2: Router ──✖──> Destination (Probe 2)`.
 * **Method A (Easiest & 100% Wireless — Single Wi-Fi / Mobile Hotspot):**
   All 4 laptops connect to the same Wi-Fi SSID / Mobile Hotspot (e.g. `192.168.1.0/24`). To force packets to physically traverse Laptop 3 (Windows Router) instead of going direct:
-  * On Arch Client (Laptop 1): `sudo ip route add <SERVER_IP>/32 via <WINDOWS_ROUTER_IP>`
-  * On Windows Client (Laptop 2): `route add <SERVER_IP> mask 255.255.255.255 <WINDOWS_ROUTER_IP>`
-  * On Linux Server (Laptop 4): `sudo ip route add <ARCH_IP>/32 via <WINDOWS_ROUTER_IP>` and `sudo ip route add <WIN_CLIENT_IP>/32 via <WINDOWS_ROUTER_IP>`
-  * On Windows Router (Laptop 3): Enable IP forwarding via `setup_windows_router.ps1`.
+  * On Arch Client 1 (Laptop 1): `sudo ip route add <CLIENT2_IP>/32 via <WINDOWS_ROUTER_IP>`
+  * On Windows Client 2 (Laptop 2): `route add <CLIENT1_IP> mask 255.255.255.255 <WINDOWS_ROUTER_IP>`
+  * On Windows Router (Laptop 3): Enable IP forwarding via `start_router.ps1` (No NAT).
+  * All 3 probes stream compact 24-byte telemetry over TCP to Laptop 4 (`<HUB_IP>:9000`).
 * **Method B (Physical 2-NIC Router):**
-  Windows Router has two NICs (e.g. Wi-Fi connected to Clients on Subnet `192.168.10.0/24` and Ethernet/USB adapter connected to Linux Server on Subnet `192.168.20.0/24`).
+  Windows Router has two NICs (e.g. Wi-Fi on Subnet `192.168.10.0/24` and Ethernet on Subnet `192.168.20.0/24`).
 
 ---
 
@@ -81,10 +91,10 @@ To streamline lab setup, each laptop has a dedicated all-in-one automation scrip
 
 | Laptop | Role | Primary One-Run Command | What It Automates |
 | :--- | :--- | :--- | :--- |
-| **Laptop 4** | **Server Hub** (Linux) | `./start_server.sh`<br>*(Stop: `./stop_server.sh`)* | • Auto-detects Server LAN IP<br>• Asks to configure Method A return routes via Router<br>• Opens UFW ports (`8001`, `9000`, `5173`, `9500`)<br>• Runs Backend (`:8001`), E3 Hub (`:9000`), React UI (`:5173`), & Egress Probe 2<br>• Streams unified logs in one terminal (Ctrl+C cleanly stops all 3) |
-| **Laptop 3** | **Router** (Windows 10/11) | `start_router.bat`<br>*(or `.\start_router.ps1`)*<br>*(Linux: `sudo ./start_router.sh`)* | • Self-elevates to Administrator<br>• **Prompts for Server Hub IP**<br>• Enables pure L3 forwarding (No NAT)<br>• Starts Probe 10 in dedicated console<br>• Interactive menu: Link 2 drop, Link 1 drop, status, clear |
-| **Laptop 1** | **Client 1** (Arch Linux) | `./start_client_linux.sh` | • **Prompts for Server Hub IP & Router IP**<br>• Disables ICMP redirects & adds `/32` host route via router<br>• Starts Client Probe 11 in background<br>• Interactive menu: mixed workload, HTTP, UDP stream, DNS exfil anomaly test, Link 1 drop |
-| **Laptop 2** | **Client 2** (Windows 10/11) | `start_client_windows.bat`<br>*(or `.\start_client_windows.ps1`)* | • Self-elevates to Administrator<br>• **Prompts for Server Hub IP & Router IP**<br>• Adds `/32` static route via router<br>• Starts Client Probe 12<br>• Interactive menu: continuous HTTP / ping, auto-cleanup |
+| **Laptop 4** | **Central Hub** (Linux) | `./start_server.sh`<br>*(Stop: `./stop_server.sh`)* | • Auto-detects Server LAN IP<br>• Opens UFW ports (`8001`, `9000`, `5173`, `9500`)<br>• Runs Backend (`:8001`), E3 Hub (`:9000`), and React UI (`:5173`)<br>• Supports remote Probe 2 on Client 2 or local Probe 2<br>• Streams unified logs in one terminal (Ctrl+C cleanly stops services) |
+| **Laptop 3** | **Router** (Windows 10/11) | `start_router.bat`<br>*(or `.\start_router.ps1`)*<br>*(Linux: `sudo ./start_router.sh`)* | • Self-elevates to Administrator<br>• **Prompts for Hub IP, Destination IP, Client 1 IP**<br>• Enables pure L3 forwarding (No NAT)<br>• Starts Probe 10 in dedicated console<br>• Interactive menu: Link 2 drop, Link 1 drop, status, clear |
+| **Laptop 1** | **Client 1** (Arch Linux) | `./start_client_linux.sh` | • **Prompts for Hub IP, Router IP, Destination IP (Client 2)**<br>• Disables ICMP redirects & adds `/32` host route to Client 2 via router<br>• Starts Client Probe 11 in background streaming to Hub<br>• Interactive menu: mixed workload, HTTP, UDP stream, DNS exfil anomaly test, Link 1 drop |
+| **Laptop 2** | **Client 2** (Windows 10/11) | `start_client_windows.bat`<br>*(or `.\start_client_windows.ps1`)* | • Self-elevates to Administrator<br>• **Prompts for Hub IP, Router IP, Client 1 IP**<br>• Runs **Probe 2 (Egress Observer)** for Client-to-Client testing<br>• Starts local HTTP `:8000` receiver<br>• Adds return route via router, interactive menu & auto-cleanup |
 
 ---
 
