@@ -138,7 +138,7 @@ class CorrelationHub:
                 self.stats["duplicate_t2"] += 1
                 return None
 
-            deadline = ts + self._timeout_ns
+            deadline = now + self._timeout_ns
             entry2 = _InFlight(
                 fingerprint=fp,
                 probe_id=pid,
@@ -161,7 +161,7 @@ class CorrelationHub:
                 entry.router_probe_id = pid
                 return None
 
-            deadline = ts + self._timeout_ns
+            deadline = now + self._timeout_ns
             entry = _InFlight(
                 fingerprint=fp,
                 probe_id=pid,
@@ -218,7 +218,7 @@ class CorrelationHub:
 
             self._maybe_evict()
 
-            deadline = ts + self._timeout_ns
+            deadline = now + self._timeout_ns
             entry = _InFlight(
                 fingerprint=fp,
                 probe_id=pid,
