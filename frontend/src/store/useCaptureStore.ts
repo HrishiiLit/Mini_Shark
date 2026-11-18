@@ -495,7 +495,7 @@ if (typeof window !== 'undefined') {
             const protoUpper = (msg.proto || 'TCP').toUpperCase() as any
             const isIcmp = protoUpper === 'ICMP'
             const srcPort = isIcmp ? 0 : (msg.src_port || 54210)
-            const dstPort = isIcmp ? 0 : (msg.dst_port || (protoUpper === 'HTTP' ? 8001 : 80))
+            const dstPort = isIcmp ? 0 : (msg.dst_port || (protoUpper === 'HTTP' ? 8000 : 80))
 
             const id = state.seq
             const now = performance.now()

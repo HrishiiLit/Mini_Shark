@@ -19,6 +19,8 @@ export function HeaderBar() {
   const setAutoScroll = useCaptureStore((s) => s.setAutoScroll)
   const probes = useCaptureStore((s) => s.probesStatus)
   const demoMode = useCaptureStore((s) => s.demoMode)
+  const viewMode = useCaptureStore((s) => s.viewMode)
+  const setViewMode = useCaptureStore((s) => s.setViewMode)
 
   const p1Online = probes.probe1_connected || demoMode
   const p2Online = probes.probe2_connected || demoMode
@@ -105,6 +107,46 @@ export function HeaderBar() {
             online={p2Online}
             color="indigo"
           />
+
+          {/* View Mode Switcher */}
+          <div className="ml-2 flex items-center rounded-lg bg-slate-100 p-0.5 border border-slate-200 text-[11px] font-semibold text-slate-600">
+            <button
+              type="button"
+              onClick={() => setViewMode('wireshark')}
+              className={`rounded-md px-2 py-0.5 transition ${
+                viewMode === 'wireshark'
+                  ? 'bg-white text-blue-700 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Wireshark 3-Pane View (Packet List, Protocol Tree, Hex Dump)"
+            >
+              Wireshark
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('split')}
+              className={`rounded-md px-2 py-0.5 transition ${
+                viewMode === 'split'
+                  ? 'bg-white text-blue-700 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Split View (3D Topology + Wireshark Packet Table)"
+            >
+              Split (3D + Table)
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('observatory')}
+              className={`rounded-md px-2 py-0.5 transition ${
+                viewMode === 'observatory'
+                  ? 'bg-white text-blue-700 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="3D WebGL Topology Observatory"
+            >
+              3D Only
+            </button>
+          </div>
         </div>
       </div>
 
