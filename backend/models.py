@@ -1,0 +1,305 @@
+"""Shared data models for Mini Shark.
+
+These dataclasses define the contract between the four engines.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from enum import Enum, IntFlag
+class StrEnum(str, Enum): pass
+from typing import Any
+
+
+@dataclass(frozen=True)
+class Packet:
+    """Engine E1 - raw packet information.
+
+    index: sequential number starting at 0
+    timestamp: epoch seconds as float (or int nanoseconds)
+    length: total packet length in bytes
+    raw_bytes: bytes of the entire frame
+    """
+
+    index: int
+    timestamp: float
+    length: int
+    raw_bytes: bytes
+
+
+@dataclass(frozen=True)
+class Layer:
+    """A protocol layer in the decoded packet tree.
+
+    name: protocol name (e.g. 'Ethernet', 'IPv4')
+    fields: mapping of field name → value (already parsed)
+    undecoded_bytes: any remaining bytes that could not be parsed for this layer
+    """
+
+    name: str
+    fields: dict[str, Any]
+    undecoded_bytes: bytes = b""
+
+
+@dataclass(frozen=True)
+class DecodedPacket:
+    """Engine E2 - hierarchical protocol representation.
+
+    packet_index : original Packet.index
+    layers       : ordered Layer objects from link to application
+    fingerprint  : 64-bit BLAKE2b fingerprint computed from path-invariant fields
+                   (None if the packet has no IP layer or is fully malformed)
+    dns_entropy  : Shannon entropy H(X) of the first DNS query name in this
+                   packet (None if no DNS query is present)
+    """
+
+    packet_index: int
+    layers: list[Layer] = field(default_factory=list)
+    fingerprint: PacketFingerprint | None = None
+    dns_entropy: float | None = None
+
+
+@dataclass(frozen=True)
+class PacketFingerprint:
+    """E2 — stable 64-bit fingerprint derived from path-invariant header fields.
+
+    algorithm : always "blake2b-64" for version 1.
+    version   : field-set version; bump whenever the input field set changes
+                so that E3 can reject cross-version matches.
+    value     : the 64-bit (8-byte) digest interpreted as an unsigned integer.
+    fields_used: which fields were hashed (debug / telemetry metadata only;
+                 not transmitted in the 24-byte wire record).
+    """
+
+    algorithm: str
+    version: int
+    value: int  # uint64 — the raw 8-byte digest as an integer
+    fields_used: list[str]
+
+
+@dataclass(frozen=True)
+class ProbeTelemetry:
+    """E2 → E3 — 24-byte fixed-size wire record sent over TCP port 9000.
+
+    Wire layout (big-endian, version 1):
+      offset  0, 8 bytes : fingerprint  (uint64)
+      offset  8, 8 bytes : timestamp_ns (uint64)
+      offset 16, 4 bytes : seq          (uint32)
+      offset 20, 1 byte  : probe_id     (uint8)
+      offset 21, 1 byte  : type_flags   (uint8)
+                               bits 0-3 : record type  (1 = packet data)
+                               bits 4-7 : format version nibble (0001 = v1)
+      offset 22, 2 bytes : captured_len (uint16)
+      total  : 24 bytes
+    """
+
+    fingerprint: int  # uint64 — PacketFingerprint.value
+    timestamp_ns: int  # uint64 — probe-local capture time, ns since epoch
+    seq: int  # uint32 — per-probe monotonic packet counter
+    probe_id: int  # uint8  — 1-255
+    type_flags: int  # uint8  — record type + version nibble
+    captured_len: int  # uint16 — captured bytes (evidence only)
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+
+    def pack(self) -> bytes:
+        """Serialize to the 24-byte big-endian wire record."""
+        import struct  # local import keeps the dataclass dependency-free
+
+        return struct.pack(
+            "!QQIBBH",
+            self.fingerprint & 0xFFFFFFFFFFFFFFFF,
+            self.timestamp_ns & 0xFFFFFFFFFFFFFFFF,
+            self.seq & 0xFFFFFFFF,
+            self.probe_id & 0xFF,
+            self.type_flags & 0xFF,
+            self.captured_len & 0xFFFF,
+        )
+
+    @classmethod
+    def unpack(cls, data: bytes) -> ProbeTelemetry:
+        """Deserialize from exactly 24 bytes."""
+        import struct
+
+        if len(data) != 24:
+            raise ValueError(
+                f"ProbeTelemetry.unpack: expected 24 bytes, got {len(data)}"
+            )
+        fingerprint, timestamp_ns, seq, probe_id, type_flags, captured_len = (
+            struct.unpack("!QQIBBH", data)
+        )
+        return cls(
+            fingerprint=fingerprint,
+            timestamp_ns=timestamp_ns,
+            seq=seq,
+            probe_id=probe_id,
+            type_flags=type_flags,
+            captured_len=captured_len,
+        )
+
+
+class MatchState(StrEnum):
+    """Match state of a packet between observation probes."""
+
+    MATCHED = "matched"
+    LATE = "late"
+    UNMATCHED = "unmatched"
+    PROBE2_ONLY = "probe2_only"
+
+
+class CorrelationFlags(IntFlag):
+    """Bit flags for CorrelationRecord per data_contract.md §5."""
+
+    NONE = 0
+    CLOCK_SKEW_SUSPECT = 1 << 0  # 1: |delay_ns| implausible or negative
+    COLLISION_DISAMBIGUATED = 1 << 1  # 2: key collision resolved via metadata
+    FRAGMENT = 1 << 2  # 4: IP fragment
+    DUPLICATE_T2_IGNORED = 1 << 3  # 8: duplicate Probe 2 telemetry dropped
+    FINGERPRINT_VERSION_MISMATCH = 1 << 4  # 16: version nibble mismatch
+    CAPACITY_EVICTED = 1 << 5  # 32: capacity pressure, not a normal timeout
+
+
+@dataclass(frozen=True)
+class TelemetryPreamble:
+    """16-byte fixed connection preamble sent once per probe connection.
+
+    Wire layout (big-endian):
+      offset  0, 4 bytes : magic ("MSHK" = 0x4D53484B)
+      offset  4, 1 byte  : version (1)
+      offset  5, 1 byte  : record_size (24)
+      offset  6, 2 bytes : reserved (0x0000)
+      offset  8, 4 bytes : probe_clock_epoch_s (uint32)
+      offset 12, 4 bytes : reserved (0x00000000)
+      total   : 16 bytes
+    """
+
+    magic: bytes = b"MSHK"
+    version: int = 1
+    record_size: int = 24
+    probe_clock_epoch_s: int = 0
+
+    def pack(self) -> bytes:
+        """Serialize preamble to 16 bytes."""
+        import struct
+
+        return struct.pack(
+            "!4sBBHII",
+            self.magic,
+            self.version & 0xFF,
+            self.record_size & 0xFF,
+            0,
+            self.probe_clock_epoch_s & 0xFFFFFFFF,
+            0,
+        )
+
+    @classmethod
+    def unpack(cls, data: bytes) -> TelemetryPreamble:
+        """Deserialize from exactly 16 bytes."""
+        import struct
+
+        if len(data) != 16:
+            raise ValueError(
+                f"TelemetryPreamble.unpack: expected 16 bytes, got {len(data)}"
+            )
+        magic, version, record_size, _res1, clock_s, _res2 = struct.unpack(
+            "!4sBBHII", data
+        )
+        if magic != b"MSHK":
+            raise ValueError(f"Invalid magic {magic!r}, expected b'MSHK'")
+        if version != 1 or record_size != 24 or _res1 or _res2:
+            raise ValueError("Unsupported preamble version, size or reserved fields")
+        return cls(
+            magic=magic,
+            version=version,
+            record_size=record_size,
+            probe_clock_epoch_s=clock_s,
+        )
+
+
+@dataclass(frozen=True)
+class CorrelationRecord:
+    """E3 -> E4 - cross-probe packet correlation record (data_contract.md §5).
+
+    fingerprint     : 64-bit BLAKE2b hash
+    probe1_observed : seen at Probe 1
+    probe2_observed : seen at Probe 2
+    t1_ns           : capture timestamp at Probe 1 (ns since epoch)
+    t2_ns           : capture timestamp at Probe 2 (ns since epoch)
+    delay_ns        : signed transit delay (T2 - T1), None if unmatched
+    match_state     : 'matched' | 'late' | 'unmatched' | 'probe2_only'
+    deadline_ns     : expiration deadline (T1 + timeout_ns)
+    flags           : bitmask of CorrelationFlags
+    probe1_seq      : telemetry sequence counter from Probe 1
+    probe2_seq      : telemetry sequence counter from Probe 2
+    created_at_ns   : timestamp when this correlation record was generated
+    """
+
+    fingerprint: int
+    probe1_observed: bool
+    probe2_observed: bool
+    t1_ns: int | None = None
+    t2_ns: int | None = None
+    delay_ns: int | None = None
+    match_state: str = MatchState.UNMATCHED.value
+    deadline_ns: int = 0
+    flags: int = 0
+    probe1_seq: int | None = None
+    probe2_seq: int | None = None
+    proto: str = "TCP"
+    router_observed: bool = False
+    router_ts: int | None = None
+    drop_link: str | None = None
+    created_at_ns: int = field(default_factory=time.time_ns)
+
+    @property
+    def delay_ms(self) -> float | None:
+        """Helper to get delay in milliseconds for UI/metrics."""
+        if self.delay_ns is None:
+            return None
+        return self.delay_ns / 1_000_000.0
+
+
+
+@dataclass(frozen=True)
+class DiagnosticAlert:
+    category: str
+    severity: str
+    confidence: str
+    detected_at_ns: int
+    recommended_action: str
+    evidence_refs: list[int] = field(default_factory=list)
+    metrics: dict[str, float] = field(default_factory=dict)
+    alert_id: int | None = None
+    resolved_at_ns: int | None = None
+
+@dataclass(frozen=True)
+class Flow:
+    """Engine E3 - grouping of packets into a flow.
+
+    flow_id: unique identifier for the flow (e.g. UUID or simple int)
+    five_tuple: tuple(src_ip, dst_ip, src_port, dst_port, protocol)
+    packet_indices: list of packet indexes belonging to this flow
+    packet_count: int - derived from len(packet_indices)
+    byte_count: int - sum of packet lengths
+    start_ts: float - timestamp of first packet in flow
+    end_ts: float - timestamp of last packet in flow
+    duration: float - end_ts - start_ts
+    """
+
+    flow_id: int
+    five_tuple: tuple[str, str, int, int, str]
+    packet_indices: list[int] = field(default_factory=list)
+    packet_count: int = 0
+    byte_count: int = 0
+    start_ts: float | None = None
+    end_ts: float | None = None
+    duration: float | None = None
+
+    def __post_init__(self) -> None:
+        # Defensive: compute derived fields if not provided
+        object.__setattr__(self, "packet_count", len(self.packet_indices))
+        # byte_count, start_ts, end_ts, duration are left to the engine to fill
+        pass

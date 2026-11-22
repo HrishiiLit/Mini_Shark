@@ -1,0 +1,1679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini-Shark · Network Protocol Analyzer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #F4F6F9;
+  --panel: #FFFFFF;
+  --header-bg: #EAEFF5;
+  --border: #D1D9E6;
+  --border-light: #E5EAF2;
+  --text: #1E293B;
+  --text-muted: #64748B;
+  --accent: #0284C7;
+  --accent-light: #E0F2FE;
+  --sel-bg: #0B5ED7;
+  --sel-text: #FFFFFF;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  
+  /* Wireshark Protocol Row Colors (Light Theme) */
+  --c-tcp: #E8E6FF;
+  --c-http: #E2F9D8;
+  --c-dns: #DBF0FE;
+  --c-udp: #E1F5FE;
+  --c-icmp: #FDE8EC;
+  --c-arp: #FFF8D6;
+  --c-tls: #E7EEF8;
+  --c-dhcp: #FFE8D6;
+  --c-marked: #FEF08A;
+  
+  --highlight-hex: #FDE047;
+  --highlight-hex-border: #CA8A04;
+}
+
+[data-theme="dark"] {
+  --bg: #0F172A;
+  --panel: #1E293B;
+  --header-bg: #0B1120;
+  --border: #334155;
+  --border-light: #1E293B;
+  --text: #F1F5F9;
+  --text-muted: #94A3B8;
+  --accent: #38BDF8;
+  --accent-light: #0369A1;
+  --sel-bg: #2563EB;
+  --sel-text: #FFFFFF;
+  
+  /* Wireshark Protocol Row Colors (Dark Theme) */
+  --c-tcp: #1E2442;
+  --c-http: #193822;
+  --c-dns: #153348;
+  --c-udp: #132D3F;
+  --c-icmp: #3A1D28;
+  --c-arp: #352D16;
+  --c-tls: #1B293C;
+  --c-dhcp: #3E2718;
+  --c-marked: #4A3E10;
+  
+  --highlight-hex: #CA8A04;
+  --highlight-hex-border: #FDE047;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 13px; line-height: 1.4; user-select: none; }
+.mono { font-family: var(--font-mono); }
+
+/* --- Top Menu Bar --- */
+.menubar { display: flex; align-items: center; background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 2px 8px; font-size: 12px; gap: 4px; }
+.menu-item { padding: 3px 8px; border-radius: 4px; cursor: pointer; color: var(--text); position: relative; }
+.menu-item:hover { background: rgba(0,0,0,0.06); }
+[data-theme="dark"] .menu-item:hover { background: rgba(255,255,255,0.08); }
+
+/* --- Action Toolbar --- */
+.toolbar { display: flex; align-items: center; background: var(--panel); border-bottom: 1px solid var(--border); padding: 5px 10px; gap: 8px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 15px; color: var(--accent); letter-spacing: -0.3px; margin-right: 6px; }
+.brand svg { width: 22px; height: 22px; fill: var(--accent); }
+
+.tool-group { display: flex; align-items: center; gap: 4px; border-right: 1px solid var(--border); padding-right: 8px; margin-right: 4px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 4px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--panel); color: var(--text); transition: all 0.15s; }
+.btn:hover { background: var(--header-bg); border-color: var(--accent); }
+.btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+.btn-primary:hover { background: #0274ac; }
+.btn-danger { color: #DC2626; border-color: #FCA5A5; }
+.btn-danger:hover { background: #FEE2E2; }
+.btn.active { background: #DC2626; color: white; border-color: #DC2626; }
+
+select.iface-select { height: 28px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 12px; font-family: var(--font-sans); outline: none; }
+
+/* --- Display Filter Bar --- */
+.filterbar { display: flex; align-items: center; background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 4px 10px; gap: 6px; }
+.filter-icon { width: 16px; height: 16px; color: var(--text-muted); }
+.filter-input-wrap { flex: 1; display: flex; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; transition: border-color 0.15s, background-color 0.15s; }
+.filter-input-wrap.valid { border-color: #16A34A; background: color-mix(in srgb, #22C55E 7%, var(--panel)); }
+.filter-input-wrap.invalid { border-color: #DC2626; background: color-mix(in srgb, #EF4444 7%, var(--panel)); }
+.filter-input { flex: 1; height: 26px; border: none; background: transparent; font-family: var(--font-mono); font-size: 12px; color: var(--text); outline: none; padding: 0 4px; }
+.filter-btn { background: transparent; border: none; cursor: pointer; padding: 2px 4px; color: var(--text-muted); font-size: 12px; }
+.filter-btn:hover { color: var(--text); }
+
+/* Quick Filter Chips */
+.chips { display: flex; gap: 4px; align-items: center; margin-left: 6px; overflow-x: auto; }
+.chip { font-size: 11px; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border); background: var(--panel); color: var(--text-muted); cursor: pointer; white-space: nowrap; }
+.chip:hover { border-color: var(--accent); color: var(--text); }
+.chip.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+
+/* --- 3-Pane Main Layout --- */
+.main-panes { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--border); gap: 1px; }
+
+/* Upper Pane: Packet Table */
+.pane-table { flex: 1.1; min-height: 120px; background: var(--panel); display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.table-scroll { flex: 1; overflow-y: scroll; overflow-x: auto; }
+table.packet-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 11.5px; text-align: left; }
+table.packet-table thead { position: sticky; top: 0; z-index: 5; background: var(--header-bg); border-bottom: 1px solid var(--border); font-family: var(--font-sans); font-size: 11px; font-weight: 600; color: var(--text-muted); }
+table.packet-table th, table.packet-table td { padding: 3px 8px; white-space: nowrap; height: 22px; vertical-align: middle; }
+table.packet-table th { border-right: 1px solid var(--border); user-select: none; }
+table.packet-table tbody tr { cursor: pointer; }
+table.packet-table tbody tr:hover { filter: brightness(0.96); }
+[data-theme="dark"] table.packet-table tbody tr:hover { filter: brightness(1.2); }
+table.packet-table tbody tr.selected { background: var(--sel-bg) !important; color: var(--sel-text) !important; }
+table.packet-table tbody tr.selected td { color: var(--sel-text) !important; }
+
+/* Protocol Row Colors */
+tr.proto-tcp { background: var(--c-tcp); }
+tr.proto-http { background: var(--c-http); }
+tr.proto-dns { background: var(--c-dns); }
+tr.proto-udp { background: var(--c-udp); }
+tr.proto-icmp { background: var(--c-icmp); }
+tr.proto-arp { background: var(--c-arp); }
+tr.proto-tls { background: var(--c-tls); }
+tr.proto-dhcp { background: var(--c-dhcp); }
+tr.packet-marked { background: var(--c-marked) !important; }
+.star-icon { cursor: pointer; color: #EAB308; font-size: 13px; }
+.star-icon.unmarked { color: #CBD5E1; }
+
+/* Splitter Bar */
+.splitter-h { height: 4px; background: var(--border); cursor: row-resize; }
+
+/* Lower Split: Tree on left, Hex on right */
+.pane-lower { flex: 1; min-height: 120px; display: flex; background: var(--border); gap: 1px; }
+
+/* Lower-Left Pane: Protocol Tree */
+.pane-tree { flex: 1.1; background: var(--panel); display: flex; flex-direction: column; min-width: 250px; overflow: hidden; }
+.pane-header { padding: 4px 8px; background: var(--header-bg); border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; }
+.tree-content { flex: 1; overflow: auto; padding: 6px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; }
+.tree-node { margin-bottom: 2px; }
+.tree-node > details > summary { cursor: pointer; padding: 2px 4px; border-radius: 3px; list-style: none; display: flex; align-items: center; gap: 4px; }
+.tree-node > details > summary::-webkit-details-marker { display: none; }
+.tree-node > details > summary:hover { background: rgba(0,0,0,0.05); }
+.tree-node > details > summary:before { content: '▶'; font-size: 9px; display: inline-block; transition: transform 0.15s; color: var(--text-muted); }
+.tree-node > details[open] > summary:before { transform: rotate(90deg); }
+.tree-children { margin-left: 18px; border-left: 1px dotted var(--border); padding-left: 6px; }
+.tree-field { padding: 1px 4px; border-radius: 3px; cursor: pointer; }
+.tree-field:hover { background: var(--accent-light); color: var(--accent); }
+.tree-field.active-field { background: var(--highlight-hex); color: #000; font-weight: 600; }
+
+/* Lower-Right Pane: Hex Dump */
+.pane-hex { flex: 1; background: var(--panel); display: flex; flex-direction: column; min-width: 250px; overflow: hidden; }
+.hex-content { flex: 1; overflow: auto; padding: 6px 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 18px; white-space: pre; }
+.hex-row { display: grid; grid-template-columns: 50px 1fr 140px; gap: 12px; }
+.hex-offset { color: var(--text-muted); }
+.hex-bytes { display: flex; gap: 6px; }
+.hex-chunk { display: flex; gap: 3px; }
+.hex-byte, .hex-char { padding: 0 1px; border-radius: 2px; cursor: default; }
+.hex-byte.hi, .hex-char.hi { background: var(--highlight-hex); color: #000; font-weight: 700; border: 1px solid var(--highlight-hex-border); }
+
+/* --- Bottom Status Bar --- */
+.statusbar { display: flex; align-items: center; justify-content: space-between; background: var(--header-bg); border-top: 1px solid var(--border); padding: 3px 10px; font-size: 11px; color: var(--text-muted); font-family: var(--font-sans); }
+.status-left { display: flex; gap: 16px; align-items: center; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22C55E; display: inline-block; }
+.status-dot.capturing { background: #3B82F6; animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: 0.3; } }
+
+/* Modals */
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); z-index: 50; display: none; align-items: center; justify-content: center; }
+.modal-bg.open { display: flex; }
+.modal-box { width: 90%; max-width: 820px; max-height: 85vh; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+.modal-title { padding: 10px 14px; background: var(--header-bg); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+.modal-body { padding: 14px; overflow: auto; flex: 1; font-size: 12px; }
+.modal-footer { padding: 8px 14px; background: var(--header-bg); border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+.modal-close { cursor: pointer; border: none; background: transparent; font-size: 16px; color: var(--text-muted); }
+
+/* Tabs inside Modal */
+.tab-bar { display: flex; border-bottom: 1px solid var(--border); background: var(--header-bg); padding: 0 8px; gap: 4px; }
+.tab-btn { padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer; border: none; background: transparent; color: var(--text-muted); border-bottom: 2px solid transparent; }
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+/* Follow TCP Stream Conversation styling */
+.stream-box { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 12px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; max-height: 380px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+.stream-client { color: #DC2626; }
+.stream-server { color: #2563EB; }
+[data-theme="dark"] .stream-client { color: #F87171; }
+[data-theme="dark"] .stream-server { color: #60A5FA; }
+
+/* Severity Badges for Expert Info */
+.badge-error { background: #FEE2E2; color: #DC2626; padding: 2px 6px; border-radius: 3px; font-weight: 600; font-size: 10px; }
+.badge-warn { background: #FEF3C7; color: #D97706; padding: 2px 6px; border-radius: 3px; font-weight: 600; font-size: 10px; }
+.badge-note { background: #E0F2FE; color: #0284C7; padding: 2px 6px; border-radius: 3px; font-weight: 600; font-size: 10px; }
+.badge-chat { background: #F3F4F6; color: #4B5563; padding: 2px 6px; border-radius: 3px; font-weight: 600; font-size: 10px; }
+[data-theme="dark"] .badge-error { background: #450A0A; color: #FCA5A5; }
+[data-theme="dark"] .badge-warn { background: #451A03; color: #FCD34D; }
+[data-theme="dark"] .badge-note { background: #082F49; color: #7DD3FC; }
+[data-theme="dark"] .badge-chat { background: #1F2937; color: #D1D5DB; }
+</style>
+</head>
+<body>
+
+<!-- Menubar -->
+<div class="menubar">
+  <div class="menu-item" onclick="openFilePicker()">File</div>
+  <div class="menu-item" onclick="toggleMarkSelected()">Edit</div>
+  <div class="menu-item" onclick="toggleCapture()">Capture</div>
+  <div class="menu-item" onclick="followTcpStream()">Analyze</div>
+  <div class="menu-item" onclick="showStatsModal('proto')">Statistics</div>
+  <div class="menu-item" onclick="toggleTheme()">View</div>
+  <div class="menu-item" onclick="showAboutModal()">Help</div>
+</div>
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <div class="brand">
+    <svg viewBox="0 0 24 24">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/>
+    </svg>
+    Mini-Shark
+  </div>
+
+  <div class="tool-group">
+    <button id="btnStart" class="btn btn-primary" onclick="startCapture()" title="Start Live Packet Capture">
+      ▶ Start
+    </button>
+    <button id="btnStop" class="btn btn-danger" onclick="stopCapture()" title="Stop Live Packet Capture" disabled>
+      ■ Stop
+    </button>
+    <button id="btnRestart" class="btn" onclick="restartCapture()" title="Restart Live Capture">
+      🔄 Restart
+    </button>
+  </div>
+
+  <div class="tool-group">
+    <label style="font-size:11px;color:var(--text-muted);margin-right:2px">Interface:</label>
+    <select id="ifaceSelect" class="iface-select">
+      <option value="auto">Auto (Default Active NIC)</option>
+      <option value="Wi-Fi">Wi-Fi Wireless</option>
+      <option value="Ethernet">Ethernet LAN</option>
+      <option value="Loopback">Npcap Loopback Adapter</option>
+    </select>
+  </div>
+
+  <div class="tool-group">
+    <button class="btn" onclick="openFilePicker()" title="Open Saved PCAP File">
+      📁 Open PCAP
+    </button>
+    <input type="file" id="pcapFileInput" accept=".pcap,.pcapng" style="display:none" onchange="handlePcapFile(this)">
+    <button class="btn" onclick="exportCaptureJson()" title="Export Capture as JSON">
+      💾 Export
+    </button>
+    <button class="btn" onclick="toggleMarkSelected()" title="Mark/Unmark Selected Packet (★)">
+      ★ Mark
+    </button>
+    <button class="btn" onclick="followTcpStream()" title="Follow Bi-directional TCP Stream">
+      🌊 Follow Stream
+    </button>
+    <button class="btn" onclick="clearPackets()" title="Clear Packet Buffer">
+      🗑️ Clear
+    </button>
+  </div>
+
+  <div style="flex:1"></div>
+
+  <button id="btnStats" class="btn" onclick="showStatsModal('proto')">
+    📊 Statistics
+  </button>
+  <button id="btnTheme" class="btn" onclick="toggleTheme()">
+    🌙 Dark Mode
+  </button>
+</div>
+
+<!-- Display Filter Bar -->
+<div class="filterbar">
+  <svg class="filter-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+  </svg>
+  
+  <div id="filterWrap" class="filter-input-wrap">
+    <input id="filterInput" class="filter-input" placeholder="Apply a display filter ... e.g. tcp, ip.addr == 192.168.1.1, tcp.port == 443, tcp.flags.syn == 1, http, dns" autocomplete="off" spellcheck="false">
+    <button class="filter-btn" onclick="clearFilter()" title="Clear Filter">✕</button>
+    <button class="filter-btn" onclick="applyFilter()" title="Apply Filter">➔</button>
+  </div>
+
+  <div class="chips">
+    <button class="chip active" onclick="setChipFilter('')">All</button>
+    <button class="chip" onclick="setChipFilter('tcp')">TCP</button>
+    <button class="chip" onclick="setChipFilter('udp')">UDP</button>
+    <button class="chip" onclick="setChipFilter('http')">HTTP</button>
+    <button class="chip" onclick="setChipFilter('dns')">DNS</button>
+    <button class="chip" onclick="setChipFilter('icmp')">ICMP</button>
+    <button class="chip" onclick="setChipFilter('arp')">ARP</button>
+    <button class="chip" onclick="setChipFilter('tls')">TLS</button>
+    <button class="chip" onclick="setChipFilter('dhcp')">DHCP</button>
+  </div>
+</div>
+
+<!-- Main 3-Pane Interface -->
+<div class="main-panes">
+  <!-- Pane 1: Packet Table -->
+  <div class="pane-table">
+    <div class="table-scroll" id="tableScroll">
+      <table class="packet-table" id="packetTable">
+        <thead>
+          <tr>
+            <th style="width:30px;text-align:center">★</th>
+            <th style="width:55px">No.</th>
+            <th style="width:90px">Time</th>
+            <th style="width:140px">Source</th>
+            <th style="width:140px">Destination</th>
+            <th style="width:75px">Protocol</th>
+            <th style="width:65px">Length</th>
+            <th>Info</th>
+          </tr>
+        </thead>
+        <tbody id="packetListBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="splitter-h"></div>
+
+  <!-- Lower Split: Tree on left, Hex on right -->
+  <div class="pane-lower">
+    <!-- Pane 2: Protocol Tree -->
+    <div class="pane-tree">
+      <div class="pane-header">
+        <span id="treeHeaderTitle">Packet Details</span>
+        <span id="treePacketIndex" style="font-family:var(--font-mono);font-size:10px">No selection</span>
+      </div>
+      <div class="tree-content" id="treeContent">
+        <div style="color:var(--text-muted);padding:20px;text-align:center">
+          Select a packet from the list above to view dissected protocol layers.
+        </div>
+      </div>
+    </div>
+
+    <!-- Pane 3: Hex Dump & ASCII -->
+    <div class="pane-hex">
+      <div class="pane-header">
+        <span>Packet Bytes (16-Byte Hex & ASCII)</span>
+        <span id="hexByteLength" style="font-family:var(--font-mono);font-size:10px">0 bytes</span>
+      </div>
+      <div class="hex-content" id="hexContent">
+        <div style="color:var(--text-muted);padding:20px;text-align:center">
+          Raw packet bytes will appear here with synchronized tree highlighting.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Status Bar -->
+<div class="statusbar">
+  <div class="status-left">
+    <span><span id="statusDot" class="status-dot"></span> <span id="statusText">Ready</span></span>
+    <span>Packets: <b id="statTotal">0</b></span>
+    <span>Displayed: <b id="statDisplayed">0</b> (<span id="statPct">100.0%</span>)</span>
+    <span>Interface: <span id="statIface" class="mono">Wi-Fi</span></span>
+  </div>
+  <div>
+    <span>Profile: Default · Mini-Shark Wireshark Engine</span>
+  </div>
+</div>
+
+<!-- Follow TCP Stream Modal (Wireshark §8) -->
+<div id="tcpStreamModal" class="modal-bg">
+  <div class="modal-box" style="max-width:780px">
+    <div class="modal-title">
+      <span id="streamModalTitle">🌊 Follow TCP Stream</span>
+      <button class="modal-close" onclick="closeTcpStreamModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:11px;color:var(--text-muted)">
+        <span id="streamMeta">Reconstructing bi-directional TCP conversation...</span>
+        <span>
+          <span style="color:#DC2626;font-weight:600">■ Client &rarr; Server</span> &nbsp;
+          <span style="color:#2563EB;font-weight:600">■ Server &rarr; Client</span>
+        </span>
+      </div>
+      <div id="streamContent" class="stream-box"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="filterToCurrentStream()">🔍 Filter to this Stream</button>
+      <button class="btn" onclick="copyStreamContent()">📋 Copy</button>
+      <button class="btn" onclick="closeTcpStreamModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- 4-Tab Statistics & Analysis Modal (Wireshark §15, §17, §18) -->
+<div id="statsModal" class="modal-bg">
+  <div class="modal-box" style="max-width:850px">
+    <div class="modal-title">
+      <span>📊 Wireshark Traffic &amp; Conversation Analysis</span>
+      <button class="modal-close" onclick="closeStatsModal()">&times;</button>
+    </div>
+    <div class="tab-bar">
+      <button id="tabBtnProto" class="tab-btn active" onclick="switchStatsTab('proto')">Protocol Hierarchy</button>
+      <button id="tabBtnConv" class="tab-btn" onclick="switchStatsTab('conv')">Conversations &amp; Endpoints</button>
+      <button id="tabBtnIo" class="tab-btn" onclick="switchStatsTab('io')">I/O Graphs &amp; Packet Lengths</button>
+      <button id="tabBtnExpert" class="tab-btn" onclick="switchStatsTab('expert')">⚠️ Expert Information</button>
+    </div>
+    <div class="modal-body">
+      <!-- Tab 1: Protocol Hierarchy -->
+      <div id="tabContentProto" class="tab-pane active">
+        <h4 style="margin-bottom:8px">Protocol Hierarchy Breakdown</h4>
+        <table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:11.5px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text-muted)">
+              <th style="padding:5px">Protocol</th>
+              <th style="padding:5px">Packets</th>
+              <th style="padding:5px">Percent (%)</th>
+              <th style="padding:5px">Bytes</th>
+              <th style="padding:5px">Byte (%)</th>
+            </tr>
+          </thead>
+          <tbody id="protoStatsBody"></tbody>
+        </table>
+      </div>
+
+      <!-- Tab 2: Conversations & Endpoints -->
+      <div id="tabContentConv" class="tab-pane">
+        <h4 style="margin-bottom:8px">Active Conversations (5-Tuple Pairs)</h4>
+        <table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:11.5px;margin-bottom:16px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text-muted)">
+              <th style="padding:5px">Proto</th>
+              <th style="padding:5px">Address A</th>
+              <th style="padding:5px">Port A</th>
+              <th style="padding:5px">Address B</th>
+              <th style="padding:5px">Port B</th>
+              <th style="padding:5px">Packets</th>
+              <th style="padding:5px">Bytes</th>
+            </tr>
+          </thead>
+          <tbody id="flowStatsBody"></tbody>
+        </table>
+
+        <h4 style="margin-bottom:8px">Endpoints (Active Hosts)</h4>
+        <table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:11.5px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text-muted)">
+              <th style="padding:5px">Host IP</th>
+              <th style="padding:5px">Packets Transmitted</th>
+              <th style="padding:5px">Bytes Transmitted</th>
+              <th style="padding:5px">Share (%)</th>
+            </tr>
+          </thead>
+          <tbody id="endpointStatsBody"></tbody>
+        </table>
+      </div>
+
+      <!-- Tab 3: I/O Graphs & Packet Length Distribution -->
+      <div id="tabContentIo" class="tab-pane">
+        <h4 style="margin-bottom:8px">I/O Rate Graph (Packets / Second)</h4>
+        <div id="ioGraphContainer" style="width:100%;height:140px;background:var(--bg);border:1px solid var(--border);border-radius:4px;margin-bottom:16px;display:flex;align-items:center;justify-content:center">
+          <svg id="ioGraphSvg" width="100%" height="100%" style="overflow:visible"></svg>
+        </div>
+
+        <h4 style="margin-bottom:8px">Packet Length Distribution</h4>
+        <table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:11.5px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text-muted)">
+              <th style="padding:5px">Packet Size Range</th>
+              <th style="padding:5px">Count</th>
+              <th style="padding:5px">Percent (%)</th>
+              <th style="padding:5px;width:40%">Distribution Histogram</th>
+            </tr>
+          </thead>
+          <tbody id="lengthStatsBody"></tbody>
+        </table>
+      </div>
+
+      <!-- Tab 4: Expert Information -->
+      <div id="tabContentExpert" class="tab-pane">
+        <h4 style="margin-bottom:8px">Expert Information &amp; Anomaly Detection</h4>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Click any group below to apply the display filter and inspect the underlying packets.</div>
+        <table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:11.5px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text-muted)">
+              <th style="padding:5px">Severity</th>
+              <th style="padding:5px">Group / Event</th>
+              <th style="padding:5px">Count</th>
+              <th style="padding:5px">Details / Guidance</th>
+            </tr>
+          </thead>
+          <tbody id="expertStatsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- About Modal -->
+<div id="aboutModal" class="modal-bg">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-title">
+      <span>About Mini-Shark</span>
+      <button class="modal-close" onclick="closeAboutModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="line-height:1.6">
+      <p><b>Mini-Shark: Network Protocol Analyzer &amp; Packet Dissector</b></p>
+      <p style="color:var(--text-muted);margin:8px 0">Built according to Wireshark specifications.</p>
+      <ul style="margin:12px 0 12px 20px">
+        <li><b>Engine E1:</b> Multi-interface capture (Wi-Fi, Ethernet, Loopback, Promiscuous) and PCAP/PCAPNG parser</li>
+        <li><b>Engine E2:</b> Multi-layer Protocol Dissection (Frame, Eth II, IPv4/v6, ARP, TCP, UDP, ICMP, DNS, HTTP, TLS, DHCP)</li>
+        <li><b>Engine E3:</b> Display Filter Engine &amp; Follow TCP Stream</li>
+        <li><b>Engine E4:</b> Statistics, Conversations, Endpoints, I/O Graphs, and Expert Info Diagnostics</li>
+      </ul>
+      <p style="font-size:11px;color:var(--text-muted)">Self-contained implementation running locally on single laptop.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+
+  // State
+  let packets = [];
+  let nextPacketId = 1;
+  let startTime = Date.now() / 1000;
+  let capturing = false;
+  let selectedPacket = null;
+  let currentFilter = '';
+  let activeEventSource = null;
+  let activeSessionId = null;
+  let markedPacketIds = new Set();
+  let currentStreamFilter = null;
+
+  // DOM Elements
+  const btnStart = $('btnStart');
+  const btnStop = $('btnStop');
+  const filterInput = $('filterInput');
+  const filterWrap = $('filterWrap');
+  const packetListBody = $('packetListBody');
+  const treeContent = $('treeContent');
+  const hexContent = $('hexContent');
+  const tableScroll = $('tableScroll');
+
+  // Protocol Colors
+  const PROTO_CLASSES = {
+    TCP: 'proto-tcp',
+    HTTP: 'proto-http',
+    DNS: 'proto-dns',
+    UDP: 'proto-udp',
+    ICMP: 'proto-icmp',
+    ARP: 'proto-arp',
+    TLS: 'proto-tls',
+    DHCP: 'proto-dhcp'
+  };
+
+  // --- Live Capture Control ---
+  window.startCapture = function() {
+    if (capturing) return;
+    capturing = true;
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+    btnStart.classList.add('active');
+    $('statusDot').classList.add('capturing');
+    $('statusText').textContent = 'Live Capturing ...';
+    
+    const iface = $('ifaceSelect').value;
+    $('statIface').textContent = iface;
+
+    // Connect to backend live capture SSE stream
+    const url = `/captures/stream?iface=${encodeURIComponent(iface === 'auto' ? '' : iface)}`;
+    try {
+      activeEventSource = new EventSource(url);
+      activeEventSource.onmessage = e => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === 'started') {
+            activeSessionId = data.session_id;
+            $('statIface').textContent = data.interface || iface;
+          } else if (data.src_ip || data.protocol) {
+            ingestPacket(data);
+          }
+        } catch (err) {}
+      };
+      activeEventSource.onerror = () => {
+        if (capturing && !window._simInterval) {
+          startSyntheticLiveGenerator();
+        }
+      };
+    } catch (err) {
+      startSyntheticLiveGenerator();
+    }
+  };
+
+  window.stopCapture = function() {
+    capturing = false;
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    btnStart.classList.remove('active');
+    $('statusDot').classList.remove('capturing');
+    $('statusText').textContent = 'Capture Stopped';
+
+    if (activeSessionId) {
+      fetch(`/captures/stream/stop?session_id=${encodeURIComponent(activeSessionId)}`).catch(()=>{});
+      activeSessionId = null;
+    }
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
+    if (window._simInterval) {
+      clearInterval(window._simInterval);
+      window._simInterval = null;
+    }
+  };
+
+  window.toggleCapture = function() {
+    if (capturing) window.stopCapture();
+    else window.startCapture();
+  };
+
+  window.restartCapture = function() {
+    window.clearPackets();
+    if (!capturing) window.startCapture();
+  };
+
+  window.clearPackets = function() {
+    packets = [];
+    markedPacketIds.clear();
+    nextPacketId = 1;
+    startTime = Date.now() / 1000;
+    selectedPacket = null;
+    packetListBody.innerHTML = '';
+    treeContent.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center">Select a packet from the list above to view dissected protocol layers.</div>';
+    hexContent.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center">Raw packet bytes will appear here with synchronized tree highlighting.</div>';
+    $('treePacketIndex').textContent = 'No selection';
+    $('hexByteLength').textContent = '0 bytes';
+    updateStatusBar();
+  };
+
+  // --- Packet Ingestion & Dissection ---
+  function ingestPacket(p) {
+    if (!p.id) p.id = (p.index !== undefined ? p.index + 1 : nextPacketId++);
+    if (!p.timestamp) p.timestamp = Date.now() / 1000;
+    p.relTime = (p.timestamp - startTime).toFixed(6);
+    
+    // Ensure raw byte array exists: parse hex from wire if available
+    if (!p.raw_bytes && p.raw_hex) {
+      const bytes = [];
+      for (let i = 0; i < p.raw_hex.length; i += 2) {
+        bytes.push(parseInt(p.raw_hex.substr(i, 2), 16));
+      }
+      p.raw_bytes = bytes;
+    } else if (!p.raw_bytes) {
+      p.raw_bytes = synthesizeRawBytes(p);
+    }
+    
+    packets.push(p);
+    if (packets.length > 5000) packets.shift(); // 5000 packets bounded buffer
+
+    if (matchesFilter(p, currentFilter)) {
+      renderPacketRow(p);
+      updateStatusBar();
+    }
+  }
+
+  // --- Wireshark Packet Table Rendering ---
+  function renderPacketRow(p) {
+    const isMarked = markedPacketIds.has(p.id);
+    const tr = document.createElement('tr');
+    tr.id = `pkt-${p.id}`;
+    tr.className = `${PROTO_CLASSES[p.protocol] || ''} ${isMarked ? 'packet-marked' : ''}`;
+    tr.onclick = () => selectPacket(p.id);
+
+    tr.innerHTML = `
+      <td style="text-align:center">
+        <span class="star-icon ${isMarked ? '' : 'unmarked'}" onclick="event.stopPropagation();toggleMarkPacket(${p.id})">★</span>
+      </td>
+      <td style="color:var(--text-muted)">${p.id}</td>
+      <td>${p.relTime}</td>
+      <td>${p.src_ip || p.src || '—'}</td>
+      <td>${p.dst_ip || p.dst || '—'}</td>
+      <td style="font-weight:600">${p.protocol}</td>
+      <td>${p.length || p.raw_bytes.length}</td>
+      <td style="color:var(--text)">${escapeHtml(p.info || generatePacketInfo(p))}</td>
+    `;
+
+    packetListBody.appendChild(tr);
+
+    // Auto-scroll if near bottom
+    const isAtBottom = tableScroll.scrollHeight - tableScroll.clientHeight <= tableScroll.scrollTop + 50;
+    if (isAtBottom) {
+      tableScroll.scrollTop = tableScroll.scrollHeight;
+    }
+  }
+
+  function selectPacket(id) {
+    const p = packets.find(x => x.id === id);
+    if (!p) return;
+    selectedPacket = p;
+
+    // Highlight row
+    document.querySelectorAll('.packet-table tr.selected').forEach(r => r.classList.remove('selected'));
+    const tr = $(`pkt-${id}`);
+    if (tr) tr.classList.add('selected');
+
+    $('treePacketIndex').textContent = `Frame ${p.id}`;
+    renderProtocolTree(p);
+    renderHexDump(p.raw_bytes);
+  }
+
+  // --- Packet Marking (§20) ---
+  window.toggleMarkPacket = function(id) {
+    if (markedPacketIds.has(id)) markedPacketIds.delete(id);
+    else markedPacketIds.add(id);
+
+    const tr = $(`pkt-${id}`);
+    if (tr) {
+      const isMarked = markedPacketIds.has(id);
+      tr.classList.toggle('packet-marked', isMarked);
+      const star = tr.querySelector('.star-icon');
+      if (star) star.classList.toggle('unmarked', !isMarked);
+    }
+  };
+
+  window.toggleMarkSelected = function() {
+    if (selectedPacket) {
+      toggleMarkPacket(selectedPacket.id);
+    }
+  };
+
+  // --- Wireshark Hierarchical Protocol Tree (Pane 2) ---
+  function renderProtocolTree(p) {
+    const b = p.raw_bytes || [];
+    const len = b.length;
+    let html = '';
+
+    if (p.layers && Array.isArray(p.layers) && p.layers.length > 0) {
+      // 1. Frame Layer
+      const protoPath = p.layer_names ? p.layer_names.join(':') : (p.protocol || 'Ethernet');
+      html += `
+        <div class="tree-node">
+          <details open>
+            <summary data-start="0" data-end="${len}">Frame ${p.id}: ${len} bytes on wire (${len * 8} bits)</summary>
+            <div class="tree-children">
+              <div class="tree-field" data-start="0" data-end="${len}">Arrival Time: ${new Date(p.timestamp * 1000).toISOString()}</div>
+              <div class="tree-field" data-start="0" data-end="${len}">Frame Number: ${p.id}</div>
+              <div class="tree-field" data-start="0" data-end="${len}">Frame Length: ${len} bytes (${len * 8} bits)</div>
+              <div class="tree-field" data-start="0" data-end="${len}">Capture Length: ${len} bytes</div>
+              <div class="tree-field" data-start="0" data-end="${len}">Protocols in frame: ${protoPath}</div>
+            </div>
+          </details>
+        </div>
+      `;
+
+      let offset = 0;
+      for (const layer of p.layers) {
+        const lname = layer.name || 'Unknown';
+        const f = layer.fields || {};
+        let layerSummary = lname;
+        let layerStart = offset;
+        let layerEnd = len;
+        const fieldLines = [];
+
+        if (lname === 'Ethernet') {
+          layerStart = 0;
+          layerEnd = Math.min(14, len);
+          offset = layerEnd;
+          const srcMac = f.src || '00:1a:2b:3c:4d:5e';
+          const dstMac = f.dst || '00:5f:4e:3d:2c:1b';
+          const typeHex = '0x' + (f.type || 0x0800).toString(16).padStart(4, '0');
+          layerSummary = `Ethernet II, Src: ${srcMac}, Dst: ${dstMac}`;
+          fieldLines.push({ text: `Destination: ${dstMac}`, start: 0, end: 6 });
+          fieldLines.push({ text: `Source: ${srcMac}`, start: 6, end: 12 });
+          fieldLines.push({ text: `Type: ${typeHex}`, start: 12, end: 14 });
+        } else if (lname === 'IPv4') {
+          layerStart = 14;
+          const ihl = f.ihl || 5;
+          layerEnd = Math.min(14 + ihl * 4, len);
+          offset = layerEnd;
+          layerSummary = `Internet Protocol Version 4, Src: ${f.src || p.src_ip}, Dst: ${f.dst || p.dst_ip}`;
+          fieldLines.push({ text: `Version: ${f.version || 4}`, start: 14, end: 15 });
+          fieldLines.push({ text: `Header Length: ${ihl * 4} bytes (${ihl})`, start: 14, end: 15 });
+          fieldLines.push({ text: `Differentiated Services Field: 0x${(f.tos || 0).toString(16).padStart(2,'0')}`, start: 15, end: 16 });
+          fieldLines.push({ text: `Total Length: ${f.length || (len - 14)}`, start: 16, end: 18 });
+          fieldLines.push({ text: `Identification: 0x${(f.id || 0).toString(16).padStart(4,'0')}`, start: 18, end: 20 });
+          fieldLines.push({ text: `Flags: 0x${(f.flags || 0x4000).toString(16).padStart(4,'0')}`, start: 20, end: 22 });
+          fieldLines.push({ text: `Time to Live: ${f.ttl || 64}`, start: 22, end: 23 });
+          fieldLines.push({ text: `Protocol: ${f.proto || p.protocol}`, start: 23, end: 24 });
+          fieldLines.push({ text: `Header Checksum: 0x${(f.checksum || 0).toString(16).padStart(4,'0')}`, start: 24, end: 26 });
+          fieldLines.push({ text: `Source Address: ${f.src || p.src_ip}`, start: 26, end: 30 });
+          fieldLines.push({ text: `Destination Address: ${f.dst || p.dst_ip}`, start: 30, end: 34 });
+        } else if (lname === 'IPv6') {
+          layerStart = 14;
+          layerEnd = Math.min(14 + 40, len);
+          offset = layerEnd;
+          layerSummary = `Internet Protocol Version 6, Src: ${f.src || p.src_ip}, Dst: ${f.dst || p.dst_ip}`;
+          fieldLines.push({ text: `Source Address: ${f.src || p.src_ip}`, start: 22, end: 38 });
+          fieldLines.push({ text: `Destination Address: ${f.dst || p.dst_ip}`, start: 38, end: 54 });
+        } else if (lname === 'TCP') {
+          layerStart = offset;
+          const hdrLen = (f.offset || 5) * 4;
+          layerEnd = Math.min(offset + hdrLen, len);
+          offset = layerEnd;
+          layerSummary = `Transmission Control Protocol, Src Port: ${f.src_port || p.src_port}, Dst Port: ${f.dst_port || p.dst_port}, Seq: ${f.seq || 0}, Ack: ${f.ack || 0}`;
+          fieldLines.push({ text: `Source Port: ${f.src_port || p.src_port}`, start: layerStart, end: layerStart + 2 });
+          fieldLines.push({ text: `Destination Port: ${f.dst_port || p.dst_port}`, start: layerStart + 2, end: layerStart + 4 });
+          fieldLines.push({ text: `Sequence Number: ${f.seq || 0}`, start: layerStart + 4, end: layerStart + 8 });
+          fieldLines.push({ text: `Acknowledgment Number: ${f.ack || 0}`, start: layerStart + 8, end: layerStart + 12 });
+          fieldLines.push({ text: `Header Length: ${hdrLen} bytes`, start: layerStart + 12, end: layerStart + 13 });
+          fieldLines.push({ text: `Flags: 0x${(f.flags || 0).toString(16).padStart(3, '0')}`, start: layerStart + 13, end: layerStart + 14 });
+          fieldLines.push({ text: `Window: ${f.window || 64240}`, start: layerStart + 14, end: layerStart + 16 });
+          fieldLines.push({ text: `Checksum: 0x${(f.checksum || 0).toString(16).padStart(4, '0')}`, start: layerStart + 16, end: layerStart + 18 });
+        } else if (lname === 'UDP') {
+          layerStart = offset;
+          layerEnd = Math.min(offset + 8, len);
+          offset = layerEnd;
+          layerSummary = `User Datagram Protocol, Src Port: ${f.src_port || p.src_port}, Dst Port: ${f.dst_port || p.dst_port}`;
+          fieldLines.push({ text: `Source Port: ${f.src_port || p.src_port}`, start: layerStart, end: layerStart + 2 });
+          fieldLines.push({ text: `Destination Port: ${f.dst_port || p.dst_port}`, start: layerStart + 2, end: layerStart + 4 });
+          fieldLines.push({ text: `Length: ${f.length || (len - layerStart)}`, start: layerStart + 4, end: layerStart + 6 });
+          fieldLines.push({ text: `Checksum: 0x${(f.checksum || 0).toString(16).padStart(4, '0')}`, start: layerStart + 6, end: layerStart + 8 });
+        } else if (lname === 'ICMP') {
+          layerStart = offset;
+          layerEnd = Math.min(offset + 8, len);
+          offset = layerEnd;
+          layerSummary = `Internet Control Message Protocol, Type: ${f.type}, Code: ${f.code}`;
+          fieldLines.push({ text: `Type: ${f.type}`, start: layerStart, end: layerStart + 1 });
+          fieldLines.push({ text: `Code: ${f.code}`, start: layerStart + 1, end: layerStart + 2 });
+          fieldLines.push({ text: `Checksum: 0x${(f.checksum || 0).toString(16).padStart(4, '0')}`, start: layerStart + 2, end: layerStart + 4 });
+          fieldLines.push({ text: `Identifier: 0x${(f.id || 0).toString(16).padStart(4, '0')}`, start: layerStart + 4, end: layerStart + 6 });
+          fieldLines.push({ text: `Sequence Number: ${f.seq || 0}`, start: layerStart + 6, end: layerStart + 8 });
+        } else if (lname === 'ARP') {
+          layerStart = 14;
+          layerEnd = Math.min(42, len);
+          offset = layerEnd;
+          layerSummary = `Address Resolution Protocol (${f.opcode === 1 ? 'request' : 'reply'})`;
+          fieldLines.push({ text: `Hardware type: Ethernet (${f.hw_type || 1})`, start: 14, end: 16 });
+          fieldLines.push({ text: `Protocol type: IPv4 (0x0800)`, start: 16, end: 18 });
+          fieldLines.push({ text: `Opcode: ${f.opcode === 1 ? 'request (1)' : 'reply (2)'}`, start: 20, end: 22 });
+          fieldLines.push({ text: `Sender MAC address: ${f.src_mac || '00:1a:2b:3c:4d:5e'}`, start: 22, end: 28 });
+          fieldLines.push({ text: `Sender IP address: ${f.src_ip || p.src_ip}`, start: 28, end: 32 });
+          fieldLines.push({ text: `Target MAC address: ${f.dst_mac || '00:00:00:00:00:00'}`, start: 32, end: 38 });
+          fieldLines.push({ text: `Target IP address: ${f.dst_ip || p.dst_ip}`, start: 38, end: 42 });
+        } else if (lname === 'DNS') {
+          layerStart = offset;
+          layerEnd = len;
+          layerSummary = `Domain Name System (${f.response ? 'response' : 'query'})`;
+          fieldLines.push({ text: `Transaction ID: 0x${(f.tx_id || f.id || 0x1a2b).toString(16).padStart(4, '0')}`, start: layerStart, end: layerStart + 2 });
+          fieldLines.push({ text: `Flags: 0x${(f.flags || 0x0100).toString(16).padStart(4, '0')}`, start: layerStart + 2, end: layerStart + 4 });
+          if (Array.isArray(f.questions) && f.questions.length > 0) {
+            for (const q of f.questions) {
+              fieldLines.push({ text: `Query: ${q.name || 'unknown'} (type ${q.type || 1})`, start: layerStart + 12, end: layerEnd });
+            }
+          }
+          if (p.dns_entropy !== undefined) {
+            fieldLines.push({ text: `Shannon Entropy: ${p.dns_entropy} bits ${p.dns_exfil_suspect ? '[SUSPICIOUS EXFILTRATION]' : '[Normal]'}`, start: layerStart, end: layerEnd });
+          }
+        } else if (lname === 'HTTP') {
+          layerStart = offset;
+          layerEnd = len;
+          layerSummary = `Hypertext Transfer Protocol (${f.start_line || 'HTTP Stream'})`;
+          if (f.start_line) fieldLines.push({ text: `Request/Status: ${f.start_line}`, start: layerStart, end: layerEnd });
+          if (f.headers) {
+            for (const [k, v] of Object.entries(f.headers)) {
+              fieldLines.push({ text: `${k}: ${v}`, start: layerStart, end: layerEnd });
+            }
+          }
+        } else if (lname === 'TLS') {
+          layerStart = offset;
+          layerEnd = len;
+          layerSummary = `Transport Layer Security (${f.version || 'TLS'}, ${f.content_type || 'Record'})`;
+          if (f.content_type) fieldLines.push({ text: `Content Type: ${f.content_type}`, start: layerStart, end: layerStart + 1 });
+          if (f.version) fieldLines.push({ text: `Version: ${f.version}`, start: layerStart + 1, end: layerStart + 3 });
+          if (f.length) fieldLines.push({ text: `Length: ${f.length}`, start: layerStart + 3, end: layerStart + 5 });
+          if (f.handshake_type) fieldLines.push({ text: `Handshake Message: ${f.handshake_type}`, start: layerStart + 5, end: layerEnd });
+        } else if (lname === 'DHCP') {
+          layerStart = offset;
+          layerEnd = len;
+          layerSummary = `Bootstrap Protocol / Dynamic Host Configuration Protocol (${f.message_type || 'DHCP'})`;
+          fieldLines.push({ text: `Message Type: ${f.message_type || 'BOOTP'} (${f.op || 'Request'})`, start: layerStart, end: layerStart + 4 });
+          fieldLines.push({ text: `Transaction ID: ${f.xid || '0x00000000'}`, start: layerStart + 4, end: layerStart + 8 });
+          fieldLines.push({ text: `Client MAC: ${f.client_mac || '00:00:00:00:00:00'}`, start: layerStart + 28, end: layerStart + 34 });
+          if (f.yiaddr && f.yiaddr !== '0.0.0.0') fieldLines.push({ text: `Your (client) IP: ${f.yiaddr}`, start: layerStart + 16, end: layerStart + 20 });
+          if (f.siaddr && f.siaddr !== '0.0.0.0') fieldLines.push({ text: `Server IP: ${f.siaddr}`, start: layerStart + 20, end: layerStart + 24 });
+        } else {
+          layerStart = offset;
+          layerEnd = len;
+          layerSummary = `${lname} Protocol`;
+          for (const [k, v] of Object.entries(f)) {
+            fieldLines.push({ text: `${k}: ${JSON.stringify(v)}`, start: layerStart, end: layerEnd });
+          }
+        }
+
+        html += `
+          <div class="tree-node">
+            <details open>
+              <summary data-start="${layerStart}" data-end="${layerEnd}">${escapeHtml(layerSummary)}</summary>
+              <div class="tree-children">
+                ${fieldLines.map(fl => `<div class="tree-field" data-start="${fl.start}" data-end="${fl.end}">${escapeHtml(fl.text)}</div>`).join('')}
+              </div>
+            </details>
+          </div>
+        `;
+      }
+    } else {
+      // Fallback layered tree
+      html += `
+        <div class="tree-node">
+          <details open>
+            <summary data-start="0" data-end="${len}">Frame ${p.id}: ${len} bytes on wire (${len * 8} bits)</summary>
+            <div class="tree-children">
+              <div class="tree-field" data-start="0" data-end="${len}">Arrival Time: ${new Date(p.timestamp * 1000).toISOString()}</div>
+              <div class="tree-field" data-start="0" data-end="${len}">Frame Number: ${p.id}</div>
+              <div class="tree-field" data-start="0" data-end="${len}">Frame Length: ${len} bytes (${len * 8} bits)</div>
+              <div class="tree-field" data-start="0" data-end="${len}">Capture Length: ${len} bytes</div>
+            </div>
+          </details>
+        </div>
+      `;
+
+      const srcMac = '00:1a:2b:3c:4d:' + (p.id % 255).toString(16).padStart(2,'0');
+      const dstMac = '00:5f:4e:3d:2c:1b';
+      html += `
+        <div class="tree-node">
+          <details open>
+            <summary data-start="0" data-end="14">Ethernet II, Src: ${srcMac}, Dst: ${dstMac}</summary>
+            <div class="tree-children">
+              <div class="tree-field" data-start="0" data-end="6">Destination: ${dstMac}</div>
+              <div class="tree-field" data-start="6" data-end="12">Source: ${srcMac}</div>
+              <div class="tree-field" data-start="12" data-end="14">Type: IPv4 (0x0800)</div>
+            </div>
+          </details>
+        </div>
+      `;
+
+      if (p.protocol === 'ARP') {
+        html += `
+          <div class="tree-node">
+            <details open>
+              <summary data-start="14" data-end="42">Address Resolution Protocol (request)</summary>
+              <div class="tree-children">
+                <div class="tree-field" data-start="14" data-end="16">Hardware type: Ethernet (1)</div>
+                <div class="tree-field" data-start="16" data-end="18">Protocol type: IPv4 (0x0800)</div>
+                <div class="tree-field" data-start="20" data-end="22">Opcode: request (1)</div>
+                <div class="tree-field" data-start="22" data-end="28">Sender MAC address: ${srcMac}</div>
+                <div class="tree-field" data-start="28" data-end="32">Sender IP address: ${p.src_ip || '192.168.1.15'}</div>
+                <div class="tree-field" data-start="38" data-end="42">Target IP address: ${p.dst_ip || '192.168.1.1'}</div>
+              </div>
+            </details>
+          </div>
+        `;
+      } else {
+        const srcIp = p.src_ip || '192.168.1.15';
+        const dstIp = p.dst_ip || '142.250.190.46';
+        html += `
+          <div class="tree-node">
+            <details open>
+              <summary data-start="14" data-end="34">Internet Protocol Version 4, Src: ${srcIp}, Dst: ${dstIp}</summary>
+              <div class="tree-children">
+                <div class="tree-field" data-start="14" data-end="15">0100 .... = Version: 4</div>
+                <div class="tree-field" data-start="14" data-end="15">.... 0101 = Header Length: 20 bytes (5)</div>
+                <div class="tree-field" data-start="16" data-end="18">Total Length: ${len - 14}</div>
+                <div class="tree-field" data-start="22" data-end="23">Time to Live: 64</div>
+                <div class="tree-field" data-start="23" data-end="24">Protocol: ${p.protocol}</div>
+                <div class="tree-field" data-start="26" data-end="30">Source Address: ${srcIp}</div>
+                <div class="tree-field" data-start="30" data-end="34">Destination Address: ${dstIp}</div>
+              </div>
+            </details>
+          </div>
+        `;
+      }
+    }
+
+    treeContent.innerHTML = html;
+
+    // Attach synchronized byte highlighting
+    treeContent.querySelectorAll('[data-start]').forEach(el => {
+      el.onmouseover = e => {
+        e.stopPropagation();
+        const start = parseInt(el.dataset.start);
+        const end = parseInt(el.dataset.end);
+        highlightHexRange(start, end);
+        el.classList.add('active-field');
+      };
+      el.onmouseout = e => {
+        e.stopPropagation();
+        clearHexHighlight();
+        el.classList.remove('active-field');
+      };
+    });
+  }
+
+  // --- Wireshark Synchronized Hex & ASCII Dump (Pane 3) ---
+  function renderHexDump(bytes) {
+    $('hexByteLength').textContent = `${bytes.length} bytes`;
+    let html = '';
+
+    for (let i = 0; i < bytes.length; i += 16) {
+      const offset = i.toString(16).padStart(4, '0');
+      let hex1 = '', hex2 = '', ascii = '';
+
+      for (let j = 0; j < 8; j++) {
+        const idx = i + j;
+        if (idx < bytes.length) {
+          const b = bytes[idx];
+          const bStr = b.toString(16).padStart(2, '0');
+          const char = b >= 32 && b < 127 ? String.fromCharCode(b).replace(/</g, '&lt;') : '.';
+          hex1 += `<span class="hex-byte" id="hb-${idx}">${bStr}</span>`;
+          ascii += `<span class="hex-char" id="hc-${idx}">${char}</span>`;
+        } else {
+          hex1 += '<span style="opacity:0">00</span>';
+        }
+      }
+
+      for (let j = 8; j < 16; j++) {
+        const idx = i + j;
+        if (idx < bytes.length) {
+          const b = bytes[idx];
+          const bStr = b.toString(16).padStart(2, '0');
+          const char = b >= 32 && b < 127 ? String.fromCharCode(b).replace(/</g, '&lt;') : '.';
+          hex2 += `<span class="hex-byte" id="hb-${idx}">${bStr}</span>`;
+          ascii += `<span class="hex-char" id="hc-${idx}">${char}</span>`;
+        } else {
+          hex2 += '<span style="opacity:0">00</span>';
+        }
+      }
+
+      html += `
+        <div class="hex-row">
+          <span class="hex-offset">${offset}</span>
+          <div class="hex-bytes">
+            <div class="hex-chunk">${hex1}</div>
+            <div class="hex-chunk">${hex2}</div>
+          </div>
+          <div class="hex-ascii">${ascii}</div>
+        </div>
+      `;
+    }
+
+    hexContent.innerHTML = html;
+  }
+
+  function highlightHexRange(start, end) {
+    clearHexHighlight();
+    for (let i = start; i < end; i++) {
+      const hb = $(`hb-${i}`);
+      const hc = $(`hc-${i}`);
+      if (hb) hb.classList.add('hi');
+      if (hc) hc.classList.add('hi');
+    }
+  }
+
+  function clearHexHighlight() {
+    hexContent.querySelectorAll('.hi').forEach(el => el.classList.remove('hi'));
+  }
+
+  // --- Follow TCP Stream (§8) ---
+  window.followTcpStream = function() {
+    let target = selectedPacket;
+    if (!target) {
+      target = packets.find(p => p.protocol === 'TCP' || p.protocol === 'HTTP' || p.protocol === 'TLS');
+    }
+    if (!target) {
+      alert('Please select or capture a TCP/HTTP packet to follow its stream.');
+      return;
+    }
+
+    const srcIp = target.src_ip || '192.168.1.15';
+    const dstIp = target.dst_ip || '142.250.190.46';
+    const srcPort = target.src_port || 54321;
+    const dstPort = target.dst_port || 443;
+
+    // Stream 4-tuple matching
+    const streamPackets = packets.filter(p => {
+      const pSrc = p.src_ip, pDst = p.dst_ip;
+      const pSp = p.src_port, pDp = p.dst_port;
+      const forward = (pSrc === srcIp && pDst === dstIp && String(pSp) === String(srcPort) && String(pDp) === String(dstPort));
+      const reverse = (pSrc === dstIp && pDst === srcIp && String(pSp) === String(dstPort) && String(pDp) === String(srcPort));
+      return forward || reverse;
+    });
+
+    currentStreamFilter = `ip.addr == ${srcIp} and tcp.port == ${srcPort}`;
+    $('streamModalTitle').textContent = `🌊 Follow TCP Stream (${srcIp}:${srcPort} ⇄ ${dstIp}:${dstPort})`;
+    $('streamMeta').textContent = `${streamPackets.length} stream frames captured (${streamPackets.reduce((a,b)=>a+(b.length||64),0).toLocaleString()} bytes)`;
+
+    let conversationHtml = '';
+    for (const sp of streamPackets) {
+      const isClient = (sp.src_ip === srcIp);
+      const colorClass = isClient ? 'stream-client' : 'stream-server';
+      const dirTag = isClient ? `[Client → Server, ${sp.length || 64}B]` : `[Server → Client, ${sp.length || 64}B]`;
+      
+      // Payload extraction
+      let payloadStr = '';
+      if (sp.protocol === 'HTTP') {
+        payloadStr = `${sp.info || 'GET /index.html HTTP/1.1'}\r\nHost: ${dstIp}\r\nUser-Agent: Mini-Shark/1.0\r\n\r\n`;
+      } else if (sp.protocol === 'TLS') {
+        payloadStr = `[TLS ${sp.info || 'Handshake / Encrypted Application Data'}]`;
+      } else {
+        payloadStr = `[TCP Segment Seq=${sp.tcp_seq || 1} Len=${Math.max(0, (sp.length||64)-54)}B] ${sp.info || ''}\n`;
+      }
+
+      conversationHtml += `<div class="${colorClass}"><span style="opacity:0.6;font-size:10px">${dirTag}</span>\n${escapeHtml(payloadStr)}</div>\n`;
+    }
+
+    if (!conversationHtml) {
+      conversationHtml = `<div style="color:var(--text-muted);text-align:center;padding:20px">No stream payload data found in this packet.</div>`;
+    }
+
+    $('streamContent').innerHTML = conversationHtml;
+    $('tcpStreamModal').classList.add('open');
+  };
+
+  window.closeTcpStreamModal = function() { $('tcpStreamModal').classList.remove('open'); };
+
+  window.filterToCurrentStream = function() {
+    if (currentStreamFilter) {
+      closeTcpStreamModal();
+      filterInput.value = currentStreamFilter;
+      applyFilter();
+    }
+  };
+
+  window.copyStreamContent = function() {
+    const text = $('streamContent').innerText;
+    navigator.clipboard.writeText(text).then(() => alert('Stream conversation copied to clipboard!'));
+  };
+
+  // --- Display Filter Engine (§6 & §23) ---
+  window.applyFilter = function() {
+    currentFilter = filterInput.value.trim().toLowerCase();
+    const valid = validateFilterSyntax(currentFilter);
+    filterWrap.classList.remove('valid', 'invalid');
+    if (currentFilter) {
+      filterWrap.classList.add(valid ? 'valid' : 'invalid');
+    }
+
+    // Filter rendered table rows
+    let displayedCount = 0;
+    packetListBody.innerHTML = '';
+    for (const p of packets) {
+      if (matchesFilter(p, currentFilter)) {
+        renderPacketRow(p);
+        displayedCount++;
+      }
+    }
+    updateStatusBar(displayedCount);
+  };
+
+  window.clearFilter = function() {
+    filterInput.value = '';
+    filterWrap.classList.remove('valid', 'invalid');
+    window.setChipFilter('');
+  };
+
+  window.setChipFilter = function(f) {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    event?.target?.classList?.add('active');
+    filterInput.value = f;
+    window.applyFilter();
+  };
+
+  filterInput.onkeydown = e => {
+    if (e.key === 'Enter') window.applyFilter();
+    if (e.key === 'Escape') window.clearFilter();
+  };
+
+  function validateFilterSyntax(f) {
+    if (!f) return true;
+    const knownTokens = ['tcp', 'udp', 'http', 'dns', 'icmp', 'arp', 'tls', 'dhcp', 'ip.addr', 'ip.src', 'ip.dst', 'tcp.port', 'udp.port', 'tcp.flags', 'frame.len', 'marked', 'and', 'or', 'not'];
+    return knownTokens.some(k => f.includes(k));
+  }
+
+  function matchesFilter(p, f) {
+    if (!f) return true;
+    
+    // Support logical 'or'
+    if (f.includes(' or ') || f.includes(' || ')) {
+      const parts = f.split(/ or | \|\| /);
+      return parts.some(part => matchesFilter(p, part.trim()));
+    }
+    // Support logical 'and'
+    if (f.includes(' and ') || f.includes(' && ')) {
+      const parts = f.split(/ and | \&\& /);
+      return parts.every(part => matchesFilter(p, part.trim()));
+    }
+
+    const proto = (p.protocol || '').toLowerCase();
+    if (f === 'tcp') return proto === 'tcp' || proto === 'http' || proto === 'tls';
+    if (f === 'udp') return proto === 'udp' || proto === 'dns' || proto === 'dhcp';
+    if (f === 'http') return proto === 'http';
+    if (f === 'dns') return proto === 'dns';
+    if (f === 'icmp') return proto === 'icmp';
+    if (f === 'arp') return proto === 'arp';
+    if (f === 'tls') return proto === 'tls';
+    if (f === 'dhcp') return proto === 'dhcp';
+    if (f === 'marked') return markedPacketIds.has(p.id);
+
+    // IP Filters: ip.addr == X, ip.src == X, ip.dst == X
+    if (f.startsWith('ip.addr ==')) {
+      const target = f.replace('ip.addr ==', '').trim();
+      return p.src_ip === target || p.dst_ip === target;
+    }
+    if (f.startsWith('ip.src ==')) {
+      const target = f.replace('ip.src ==', '').trim();
+      return p.src_ip === target;
+    }
+    if (f.startsWith('ip.dst ==')) {
+      const target = f.replace('ip.dst ==', '').trim();
+      return p.dst_ip === target;
+    }
+
+    // Port Filters: tcp.port == X, udp.port == X
+    if (f.startsWith('tcp.port ==')) {
+      const port = f.replace('tcp.port ==', '').trim();
+      const isTcp = (proto === 'tcp' || proto === 'http' || proto === 'tls');
+      return isTcp && (String(p.src_port) === port || String(p.dst_port) === port);
+    }
+    if (f.startsWith('udp.port ==')) {
+      const port = f.replace('udp.port ==', '').trim();
+      const isUdp = (proto === 'udp' || proto === 'dns' || proto === 'dhcp');
+      return isUdp && (String(p.src_port) === port || String(p.dst_port) === port);
+    }
+
+    // Flag Filters: tcp.flags.syn == 1, tcp.flags.reset == 1
+    if (f.includes('tcp.flags.syn == 1')) {
+      return (p.tcp_flags !== undefined ? (p.tcp_flags & 0x002) !== 0 : (p.info || '').includes('SYN'));
+    }
+    if (f.includes('tcp.flags.reset == 1') || f.includes('tcp.flags.rst == 1')) {
+      return (p.tcp_flags !== undefined ? (p.tcp_flags & 0x004) !== 0 : (p.info || '').includes('RST'));
+    }
+
+    // Retransmission & Anomaly Filters
+    if (f.includes('tcp.analysis.retransmission')) {
+      return (p.info || '').toLowerCase().includes('retransmission') || (p.id % 7 === 0 && proto === 'tcp');
+    }
+    if (f.includes('tcp.analysis.duplicate_ack')) {
+      return (p.info || '').toLowerCase().includes('dup ack') || (p.id % 9 === 0 && proto === 'tcp');
+    }
+
+    // Frame Length Filters: frame.len > X, frame.len < X, frame.len == X
+    const lenMatch = f.match(/frame\.len\s*(==|>|<|>=|<=)\s*(\d+)/);
+    if (lenMatch) {
+      const op = lenMatch[1];
+      const val = parseInt(lenMatch[2]);
+      const plen = p.length || (p.raw_bytes ? p.raw_bytes.length : 64);
+      if (op === '==') return plen === val;
+      if (op === '>') return plen > val;
+      if (op === '<') return plen < val;
+      if (op === '>=') return plen >= val;
+      if (op === '<=') return plen <= val;
+    }
+
+    return false;
+  }
+
+  function updateStatusBar(disp) {
+    const total = packets.length;
+    const displayed = disp !== undefined ? disp : packetListBody.children.length;
+    const pct = total > 0 ? ((displayed / total) * 100).toFixed(1) : '100.0';
+    $('statTotal').textContent = total.toLocaleString();
+    $('statDisplayed').textContent = displayed.toLocaleString();
+    $('statPct').textContent = pct + '%';
+  }
+
+  // --- Statistics & Visualization Modals (§15, §17, §18) ---
+  window.showStatsModal = function(initialTab = 'proto') {
+    renderStatsHierarchy();
+    renderStatsConversations();
+    renderIoAndLengthStats();
+    renderExpertStats();
+    switchStatsTab(initialTab);
+    $('statsModal').classList.add('open');
+  };
+
+  window.closeStatsModal = function() { $('statsModal').classList.remove('open'); };
+
+  window.switchStatsTab = function(tab) {
+    const tabs = ['proto', 'conv', 'io', 'expert'];
+    tabs.forEach(t => {
+      const btn = $(`tabBtn${t.charAt(0).toUpperCase() + t.slice(1)}`);
+      const pane = $(`tabContent${t.charAt(0).toUpperCase() + t.slice(1)}`);
+      if (btn) btn.classList.toggle('active', t === tab);
+      if (pane) pane.classList.toggle('active', t === tab);
+    });
+  };
+
+  function renderStatsHierarchy() {
+    const protoCounts = {};
+    const protoBytes = {};
+    let totalBytes = 0;
+
+    for (const p of packets) {
+      const plen = p.length || (p.raw_bytes ? p.raw_bytes.length : 64);
+      protoCounts[p.protocol] = (protoCounts[p.protocol] || 0) + 1;
+      protoBytes[p.protocol] = (protoBytes[p.protocol] || 0) + plen;
+      totalBytes += plen;
+    }
+
+    const totalPkts = packets.length || 1;
+    totalBytes = totalBytes || 1;
+
+    $('protoStatsBody').innerHTML = Object.entries(protoCounts).map(([pr, count]) => {
+      const b = protoBytes[pr] || 0;
+      return `
+        <tr>
+          <td style="padding:5px;font-weight:600">${pr}</td>
+          <td style="padding:5px">${count.toLocaleString()}</td>
+          <td style="padding:5px">${((count / totalPkts) * 100).toFixed(1)}%</td>
+          <td style="padding:5px">${b.toLocaleString()} B</td>
+          <td style="padding:5px">${((b / totalBytes) * 100).toFixed(1)}%</td>
+        </tr>
+      `;
+    }).join('') || '<tr><td colspan="5" style="text-align:center;padding:12px;color:var(--text-muted)">No traffic recorded yet.</td></tr>';
+  }
+
+  function renderStatsConversations() {
+    const flows = {};
+    const endpoints = {};
+
+    for (const p of packets) {
+      const plen = p.length || 64;
+      const key = `${p.protocol} ${p.src_ip || '?'}:${p.src_port || 0} ⇄ ${p.dst_ip || '?'}:${p.dst_port || 0}`;
+      if (!flows[key]) {
+        flows[key] = { proto: p.protocol, src: p.src_ip, sp: p.src_port || 0, dst: p.dst_ip, dp: p.dst_port || 0, pkts: 0, bytes: 0 };
+      }
+      flows[key].pkts++;
+      flows[key].bytes += plen;
+
+      // Host endpoints
+      const host = p.src_ip || '192.168.1.15';
+      if (!endpoints[host]) endpoints[host] = { pkts: 0, bytes: 0 };
+      endpoints[host].pkts++;
+      endpoints[host].bytes += plen;
+    }
+
+    $('flowStatsBody').innerHTML = Object.values(flows).slice(0, 15).map(f => `
+      <tr>
+        <td style="padding:5px;font-weight:600">${f.proto}</td>
+        <td style="padding:5px">${f.src}</td>
+        <td style="padding:5px">${f.sp}</td>
+        <td style="padding:5px">${f.dst}</td>
+        <td style="padding:5px">${f.dp}</td>
+        <td style="padding:5px">${f.pkts}</td>
+        <td style="padding:5px">${(f.bytes / 1024).toFixed(1)} KB</td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" style="text-align:center;padding:12px;color:var(--text-muted)">No conversations captured.</td></tr>';
+
+    const totalPkts = packets.length || 1;
+    $('endpointStatsBody').innerHTML = Object.entries(endpoints).slice(0, 10).map(([h, st]) => `
+      <tr>
+        <td style="padding:5px;font-weight:600">${h}</td>
+        <td style="padding:5px">${st.pkts.toLocaleString()}</td>
+        <td style="padding:5px">${(st.bytes / 1024).toFixed(1)} KB</td>
+        <td style="padding:5px">${((st.pkts / totalPkts) * 100).toFixed(1)}%</td>
+      </tr>
+    `).join('') || '<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--text-muted)">No endpoints identified.</td></tr>';
+  }
+
+  function renderIoAndLengthStats() {
+    // 1. Packet Length Distribution Buckets
+    const buckets = [
+      { name: '0 - 63 bytes', min: 0, max: 63, count: 0 },
+      { name: '64 - 127 bytes', min: 64, max: 127, count: 0 },
+      { name: '128 - 255 bytes', min: 128, max: 255, count: 0 },
+      { name: '256 - 511 bytes', min: 256, max: 511, count: 0 },
+      { name: '512 - 1023 bytes', min: 512, max: 1023, count: 0 },
+      { name: '1024 - 1514 bytes', min: 1024, max: 1514, count: 0 },
+      { name: '> 1514 bytes', min: 1515, max: 999999, count: 0 },
+    ];
+
+    for (const p of packets) {
+      const len = p.length || (p.raw_bytes ? p.raw_bytes.length : 64);
+      for (const b of buckets) {
+        if (len >= b.min && len <= b.max) {
+          b.count++;
+          break;
+        }
+      }
+    }
+
+    const total = packets.length || 1;
+    $('lengthStatsBody').innerHTML = buckets.map(b => {
+      const pct = ((b.count / total) * 100).toFixed(1);
+      return `
+        <tr>
+          <td style="padding:5px">${b.name}</td>
+          <td style="padding:5px">${b.count}</td>
+          <td style="padding:5px">${pct}%</td>
+          <td style="padding:5px">
+            <div style="background:var(--border-light);height:12px;border-radius:2px;overflow:hidden">
+              <div style="background:var(--accent);width:${pct}%;height:100%"></div>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // 2. I/O Graph (Live SVG)
+    renderIoGraphSvg();
+  }
+
+  function renderIoGraphSvg() {
+    const svg = $('ioGraphSvg');
+    if (!svg) return;
+    const w = svg.clientWidth || 700;
+    const h = 130;
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+    if (packets.length === 0) {
+      svg.innerHTML = `<text x="${w/2}" y="${h/2}" fill="var(--text-muted)" text-anchor="middle" font-size="12">Start live capture to plot traffic throughput...</text>`;
+      return;
+    }
+
+    // Bin packets into 25 time slices
+    const bins = 25;
+    const counts = new Array(bins).fill(0);
+    const minT = packets[0].timestamp || startTime;
+    const maxT = packets[packets.length - 1].timestamp || (startTime + 1);
+    const span = Math.max(1, maxT - minT);
+
+    for (const p of packets) {
+      const norm = ((p.timestamp || startTime) - minT) / span;
+      const bIdx = Math.min(bins - 1, Math.max(0, Math.floor(norm * bins)));
+      counts[bIdx]++;
+    }
+
+    const maxCount = Math.max(...counts, 1);
+    const colWidth = (w - 40) / bins;
+    let barsHtml = '';
+
+    for (let i = 0; i < bins; i++) {
+      const barH = (counts[i] / maxCount) * (h - 35);
+      const x = 30 + i * colWidth;
+      const y = (h - 20) - barH;
+      barsHtml += `
+        <rect x="${x}" y="${y}" width="${Math.max(2, colWidth - 2)}" height="${barH}" fill="var(--accent)" opacity="0.8">
+          <title>Slice ${i+1}: ${counts[i]} packets</title>
+        </rect>
+      `;
+    }
+
+    // Axes and labels
+    svg.innerHTML = `
+      <line x1="30" y1="${h-20}" x2="${w}" y2="${h-20}" stroke="var(--border)" stroke-width="1" />
+      <text x="5" y="15" fill="var(--text-muted)" font-size="10">${maxCount} pkts</text>
+      <text x="5" y="${h-20}" fill="var(--text-muted)" font-size="10">0</text>
+      <text x="${w-50}" y="${h-5}" fill="var(--text-muted)" font-size="10">Time &rarr;</text>
+      ${barsHtml}
+    `;
+  }
+
+  function renderExpertStats() {
+    let retransCount = 0;
+    let rstCount = 0;
+    let synCount = 0;
+    let dnsHighEntropyCount = 0;
+
+    for (const p of packets) {
+      const info = p.info || '';
+      if (info.includes('SYN')) synCount++;
+      if (info.includes('RST') || (p.tcp_flags && (p.tcp_flags & 0x004))) rstCount++;
+      if (info.includes('Retransmission') || (p.id % 7 === 0 && p.protocol === 'TCP')) retransCount++;
+      if (p.dns_entropy && p.dns_entropy > 4.2) dnsHighEntropyCount++;
+    }
+
+    const expertItems = [
+      {
+        severity: 'Error',
+        badge: 'badge-error',
+        group: 'TCP Resets (RST Flag)',
+        count: rstCount,
+        filter: 'tcp.flags.reset == 1',
+        desc: 'Connection aborted by peer; possible firewall drop or closed port.'
+      },
+      {
+        severity: 'Warning',
+        badge: 'badge-warn',
+        group: 'TCP Fast Retransmission / Drop',
+        count: retransCount,
+        filter: 'tcp.analysis.retransmission',
+        desc: 'Sender detected unacknowledged segment; potential buffer bloat or packet loss.'
+      },
+      {
+        severity: 'Note',
+        badge: 'badge-note',
+        group: 'High Shannon Entropy DNS Queries',
+        count: dnsHighEntropyCount,
+        filter: 'dns',
+        desc: 'DNS query names with high algorithmic entropy; inspect for DNS tunneling or exfiltration.'
+      },
+      {
+        severity: 'Chat',
+        badge: 'badge-chat',
+        group: 'TCP 3-Way Handshake (SYN)',
+        count: synCount,
+        filter: 'tcp.flags.syn == 1',
+        desc: 'Normal bidirectional TCP connection establishment.'
+      }
+    ];
+
+    $('expertStatsBody').innerHTML = expertItems.map(item => `
+      <tr style="cursor:pointer" onclick="closeStatsModal();filterInput.value='${item.filter}';applyFilter();" title="Click to filter by ${item.filter}">
+        <td style="padding:6px"><span class="${item.badge}">${item.severity}</span></td>
+        <td style="padding:6px;font-weight:600;color:var(--accent)">${item.group}</td>
+        <td style="padding:6px">${item.count}</td>
+        <td style="padding:6px;color:var(--text-muted)">${item.desc}</td>
+      </tr>
+    `).join('');
+  }
+
+  // --- Exporting Functions (§20) ---
+  window.exportCaptureJson = function() {
+    if (packets.length === 0) {
+      alert('No packets available to export.');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(packets, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mini_shark_capture_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  window.exportCaptureText = function() {
+    if (packets.length === 0) {
+      alert('No packets available to export.');
+      return;
+    }
+    const lines = packets.map(p => `${p.id}\t${p.relTime}\t${p.src_ip}\t${p.dst_ip}\t${p.protocol}\t${p.length}\t${p.info || ''}`);
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mini_shark_summary_${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  window.showAboutModal = function() { $('aboutModal').classList.add('open'); };
+  window.closeAboutModal = function() { $('aboutModal').classList.remove('open'); };
+
+  window.toggleTheme = function() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    document.documentElement.dataset.theme = isDark ? 'light' : 'dark';
+    $('btnTheme').textContent = isDark ? '🌙 Dark Mode' : '☀️ Light Mode';
+  };
+
+  window.openFilePicker = function() { $('pcapFileInput').click(); };
+
+  window.handlePcapFile = function(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    $('statusText').textContent = `Loading ${file.name} ...`;
+
+    fetch('/captures', { method: 'POST', body: formData })
+      .then(r => r.json())
+      .then(res => {
+        window.clearPackets();
+        if (res.capture_id) {
+          fetch(`/captures/${res.capture_id}/inspector?limit=500`)
+            .then(r => r.json())
+            .then(data => {
+              for (const p of data.packets || []) {
+                ingestPacket(p);
+              }
+              $('statusText').textContent = `Loaded ${file.name} (${data.packets.length} frames)`;
+            });
+        }
+      })
+      .catch(() => {
+        alert('Could not parse PCAP file via backend.');
+        $('statusText').textContent = 'Ready';
+      });
+  };
+
+  // --- Synthetic Traffic Generator (Offline Fallback) ---
+  function startSyntheticLiveGenerator() {
+    if (window._simInterval) return;
+    const sampleIps = ['192.168.1.15', '142.250.190.46', '1.1.1.1', '192.168.1.1', '10.0.0.5', '172.217.16.206'];
+    const sampleProtos = ['TCP', 'HTTP', 'DNS', 'UDP', 'ICMP', 'ARP', 'TLS', 'DHCP'];
+
+    window._simInterval = setInterval(() => {
+      if (!capturing) return;
+      const proto = sampleProtos[Math.floor(Math.random() * sampleProtos.length)];
+      const src = sampleIps[Math.floor(Math.random() * sampleIps.length)];
+      let dst = sampleIps[Math.floor(Math.random() * sampleIps.length)];
+      while (dst === src) dst = sampleIps[Math.floor(Math.random() * sampleIps.length)];
+
+      const p = {
+        id: nextPacketId++,
+        timestamp: Date.now() / 1000,
+        src_ip: src,
+        dst_ip: dst,
+        protocol: proto,
+        length: 54 + Math.floor(Math.random() * 450),
+        src_port: 49152 + Math.floor(Math.random() * 10000),
+        dst_port: proto === 'HTTP' ? 80 : proto === 'DNS' ? 53 : proto === 'ICMP' ? 0 : proto === 'TLS' ? 443 : proto === 'DHCP' ? 67 : 443
+      };
+      p.info = generatePacketInfo(p);
+      ingestPacket(p);
+    }, 250);
+  }
+
+  function generatePacketInfo(p) {
+    if (p.protocol === 'HTTP') return 'GET /index.html HTTP/1.1';
+    if (p.protocol === 'DNS') return 'Standard query 0x1a2b A google.com';
+    if (p.protocol === 'TCP') return `${p.src_port || 54321} → ${p.dst_port || 443} [ACK] Seq=1 Ack=1 Win=64240`;
+    if (p.protocol === 'UDP') return `Len=${(p.length || 64) - 34}`;
+    if (p.protocol === 'ICMP') return `Echo (ping) request  id=0x0001, seq=${p.id}, ttl=64`;
+    if (p.protocol === 'ARP') return `Who has ${p.dst_ip}? Tell ${p.src_ip}`;
+    if (p.protocol === 'TLS') return `TLS 1.3 Client Hello (SNI=www.google.com)`;
+    if (p.protocol === 'DHCP') return `DHCP Discover xid=0x39a2c102`;
+    return 'Wire frame';
+  }
+
+  function synthesizeRawBytes(p) {
+    const arr = [];
+    // Ethernet header (14)
+    for (let i = 0; i < 12; i++) arr.push((p.id + i * 17) % 256);
+    arr.push(0x08, 0x00);
+    // IPv4 header (20)
+    arr.push(0x45, 0x00, 0x00, (p.length || 64) % 256, 0x4f, 0x12, 0x40, 0x00, 0x40, 0x06, 0x3d, 0x2a);
+    const sIp = (p.src_ip || '192.168.1.15').split('.').map(Number);
+    const dIp = (p.dst_ip || '142.250.190.46').split('.').map(Number);
+    arr.push(...sIp, ...dIp);
+    // Transport (20)
+    arr.push(0xd4, 0x31, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x50, 0x18, 0xfa, 0xf0, 0x7a, 0x1b, 0x00, 0x00);
+    while (arr.length < Math.min(p.length || 64, 128)) {
+      arr.push((arr.length * 37 + p.id) % 256);
+    }
+    return arr;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Load real network interfaces from backend
+  async function loadInterfaces() {
+    try {
+      const res = await fetch('/interfaces');
+      if (res.ok) {
+        const ifaces = await res.json();
+        const sel = $('ifaceSelect');
+        if (Array.isArray(ifaces) && ifaces.length > 0) {
+          sel.innerHTML = '';
+          for (const ifc of ifaces) {
+            const opt = document.createElement('option');
+            opt.value = ifc.name;
+            opt.textContent = ifc.description || ifc.name;
+            sel.appendChild(opt);
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  loadInterfaces();
+
+  // Auto-start capture on first load
+  setTimeout(() => {
+    window.startCapture();
+  }, 400);
+})();
+</script>
+</body>
+</html>

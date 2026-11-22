@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+dpkt
+scapy
+python-multipart
+sqlalchemy

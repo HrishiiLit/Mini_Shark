@@ -1,0 +1,192 @@
+
+CHAPTER 4 — SPRINT 1 STUDENT HANDBOOK
+Complete Solution Design & Implementation
+4.1 Team and Engine Register 
+Field
+Student entry
+Team number
+07
+Theme
+Network Traffic Monitoring & Protocol Analysis Tool
+
+Artefact
+Live Network Packet Capture and Protocol Analysis
+Guide name
+Pooja Shettar
+Department 
+CSE(AI)
+Repository link
+https://github.com/Janaki1711/Minyaa
+Date
+21/11/2026
+
+Team members
+Student
+USN
+Student name
+Engine 
+Student A
+01fe24bci067
+M Janaki
+E1 – Capture & Ingestion
+Student B
+01fe24bci066
+Chhavi Mishra
+E2 – Protocol Analysis & Packet Dissection
+Student C
+01fe24bci043
+Hrishikesh Patil
+E3 – Filtering & Query
+Student D
+01fe24bci0
+Vaibhav Kumar
+E4 – Statistics, Flow & Expert Analysis
+
+Approved engines
+Engine ID
+Approved engine name
+Owner (A–E)
+Main function
+E1
+Capture & Ingestion
+A
+Captures live packets, timestamps them and sends them to the processing pipeline.
+E2
+Protocol Analysis & Packet Dissection
+B
+Decodes packet bytes into Ethernet, IP, TCP/UDP and application-layer fields.
+E3
+Filtering & Query
+C
+Parses display filters and selects packets that match the requested conditions.
+E4
+Statistics, Flow & Expert Analysis
+D
+Builds flows, calculates traffic statistics and identifies useful TCP/protocol indicators.
+
+Overall System Architecture
+Overall System Architecture Diagram
+
+
+Engine
+What it does
+E1 – Capture & Ingestion
+Gets live packets from the selected network interface, adds timestamps/IDs and buffers them.
+E2 – Protocol Analysis
+Decodes packet layers and creates readable protocol fields and a protocol tree.
+E3 – Filtering & Query
+
+Reads the user's filter and returns packets whose decoded fields match it.
+
+E4 – Statistics, Flow & Expert Analysis
+
+Groups traffic into flows, calculates statistics and reports useful TCP/protocol indicators.
+
+Engine Interaction and Dependencies
+Engine Interaction Diagram
+
+
+From engine
+To engine
+Data 
+E1
+E2
+
+Raw packet bytes, packet ID and timestamp
+E2
+
+E3
+Decoded fields and protocol tree
+E2
+E4
+Decoded protocol/TCP/UDP fields
+E3
+E4
+Filtered packet set or packet references
+
+Engine-wise Architecture
+Engine ID
+Main responsibility
+Inputs
+Outputs
+E1
+Live packet capture and buffering
+Network interface and capture settings
+Raw packets, timestamps, packet IDs
+E2
+Protocol decoding and field extraction
+Raw packets from E1
+Structured packet, protocol tree, payload
+E3
+Filter parsing and evaluation
+User filter + decoded fields
+Matching packet list/references
+E4
+Traffic statistics and expert analysis
+Decoded/filtered packets
+Flows, statistics, TCP indicators, warnings
+
+
+
+
+
+
+
+
+
+Database Design
+Entity Relationship (ER) Diagram
+
+
+Table / entity
+Key fields
+Relation 
+CaptureSession
+session_id (PK), start_time, interface, status
+One session contains many packets.
+Packet
+packet_id (PK), session_id (FK), timestamp, length, raw_data_ref
+Each packet belongs to one capture session.
+PacketField
+field_id (PK), packet_id (FK), protocol, field_name, field_value
+Stores decoded fields for a packet.
+Flow
+flow_id (PK), session_id (FK), protocol, src, dst, packet_count, byte_count
+Groups related packets into a communication flow.
+
+Algorithm and Data Structure
+For each engine that uses a significant algorithm, briefly show the steps and why the method is suitable.
+Engine ID
+Algorithm / data structure
+Why selected
+E1
+Producer-consumer queue + bounded buffer
+Separates capture from processing and prevents unlimited memory growth.
+E2
+Layered protocol parser / decoder
+Processes each protocol layer and converts bytes into readable fields.
+E3
+Lexer + expression parser + expression tree
+Supports filters such as tcp.port == 443 and combines conditions.
+E4
+Hash-map flow tracking + counters + TCP state tracking
+Groups packets efficiently and detects useful TCP events.
+
+Algorithm Flowchart 
+
+
+
+Security, Errors and Testing
+Show important permissions, validation and error responses. Explain how you will check the design.
+Area
+Simple student explanation
+Who can access or change important data?
+Only authorized users should capture or view packet data. Saved captures should be protected because they may contain sensitive information.
+What happens for invalid input or a failed request?
+Check interface names, capture settings and filter syntax. Show a simple error message and continue safely when a packet cannot be decoded.
+Is copying of large data necessary, and who owns it?
+Avoid unnecessary copies of full packets. Store metadata/references where possible. Captured data must be handled by the authorized user or organization.
+How will you test the main functions?
+Test live capture, protocol decoding, filters, TCP analysis and statistics using controlled traffic and known packets. Also test invalid filters, high traffic and packet drops.
+
+Repository link: ___________________________________
