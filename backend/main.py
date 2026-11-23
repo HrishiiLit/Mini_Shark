@@ -13,6 +13,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
+from pathlib import Path
 
 from .api.routes import router, get_hub, get_engine, _get_probes_status
 from .e4_query.diagnostics import run_diagnostics
@@ -21,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 E3_HOST = os.environ.get("MINISHARK_TELEMETRY_HOST", "0.0.0.0")
 E3_PORT = int(os.environ.get("MINISHARK_TELEMETRY_PORT", "9000"))
+_STATIC_DASHBOARD = Path(__file__).resolve().parent / "static" / "index.html"
 
 
 # Lifespan context to run E3 server alongside FastAPI
@@ -72,6 +75,16 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/dashboard.html", response_class=HTMLResponse)
+async def serve_dashboard():
+    """Serve the Mini-Shark 3D Distributed Network Tracing Observatory."""
+    if _STATIC_DASHBOARD.exists():
+        return HTMLResponse(_STATIC_DASHBOARD.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>Mini-Shark API</h1><p>Visit <a href='/docs'>/docs</a> for REST documentation.</p>")
 
 
 @app.get("/health")

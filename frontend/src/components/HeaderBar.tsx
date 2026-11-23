@@ -1,6 +1,7 @@
 import {
   Bookmark,
   Clock,
+  ExternalLink,
   Pause,
   Play,
   Trash2,
@@ -17,10 +18,10 @@ export function HeaderBar() {
   const clearPackets = useCaptureStore((s) => s.clearPackets)
   const autoScroll = useCaptureStore((s) => s.autoScroll)
   const setAutoScroll = useCaptureStore((s) => s.setAutoScroll)
-  const probes = useCaptureStore((s) => s.probesStatus)
-  const demoMode = useCaptureStore((s) => s.demoMode)
   const viewMode = useCaptureStore((s) => s.viewMode)
   const setViewMode = useCaptureStore((s) => s.setViewMode)
+  const probes = useCaptureStore((s) => s.probesStatus)
+  const demoMode = useCaptureStore((s) => s.demoMode)
 
   const p1Online = probes.probe1_connected || demoMode
   const p2Online = probes.probe2_connected || demoMode
@@ -199,6 +200,57 @@ export function HeaderBar() {
             <Clock size={12} />
             <span>Auto-Scroll {autoScroll ? 'ON' : 'OFF'}</span>
           </button>
+
+          {/* View Mode Segmented Switcher */}
+          <div className="flex items-center rounded border border-slate-300 bg-slate-100 p-0.5 text-[11px] font-medium shadow-2xs">
+            <button
+              type="button"
+              onClick={() => setViewMode('wireshark')}
+              className={`rounded px-2 py-0.5 transition ${
+                viewMode === 'wireshark'
+                  ? 'bg-white font-semibold text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Classic Wireshark 3-pane packet analyzer"
+            >
+              Wireshark
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('observatory')}
+              className={`rounded px-2 py-0.5 transition ${
+                viewMode === 'observatory'
+                  ? 'bg-cyan-600 font-semibold text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="3D Distributed Network Tracing Observatory"
+            >
+              3D Observatory
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('split')}
+              className={`rounded px-2 py-0.5 transition ${
+                viewMode === 'split'
+                  ? 'bg-blue-600 font-semibold text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Split view (3D Observatory + Packet Table)"
+            >
+              Split
+            </button>
+          </div>
+
+          <a
+            href="/dashboard.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 shadow-sm transition hover:bg-slate-100 active:scale-95"
+            title="Pop out 3D Observatory in a new tab"
+          >
+            <span>Pop out</span>
+            <ExternalLink size={11} className="text-slate-500" />
+          </a>
         </div>
 
         {/* Authentic Wireshark Display Filter Input */}

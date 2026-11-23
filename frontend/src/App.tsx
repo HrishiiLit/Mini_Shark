@@ -14,6 +14,7 @@ export default function App() {
   return (
     <div className="flex h-svh flex-col bg-[#F8FAFC] font-sans text-slate-800 select-none">
       <HeaderBar />
+      
       {viewMode === 'wireshark' && (
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
           {/* Pane 1: Wireshark Packet List */}
@@ -27,12 +28,14 @@ export default function App() {
           </div>
         </main>
       )}
+
       {viewMode === 'observatory' && (
         <main className="grid min-h-0 flex-1 grid-rows-2 overflow-hidden">
           <TopologyView />
           <Inspector />
         </main>
       )}
+
       {viewMode === 'split' && (
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Top: 3D Topology View */}

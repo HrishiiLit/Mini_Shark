@@ -378,7 +378,76 @@ def build_default_registry() -> DissectorRegistry:
     registry.register("port", 8080, "HTTP", http)
     registry.register("port", 8000, "HTTP", http)
     registry.register("port", 8001, "HTTP", http)
+
+    registry.register("port", 67, "DHCP", dhcp)
+    registry.register("port", 68, "DHCP", dhcp)
+    registry.register("port", 443, "TLS", tls)
+    registry.register("port", 8443, "TLS", tls)
     return registry
+
+
+def tls(data: bytes) -> tuple[Layer, bytes | None, Dispatch | None]:
+    """TLS record layer and handshake inspection."""
+    if len(data) < 5:
+        return _truncated("TLS", data)
+    ctype, ver, length = struct.unpack_from("!BHH", data, 0)
+    ctype_names = {20: "ChangeCipherSpec", 21: "Alert", 22: "Handshake", 23: "ApplicationData"}
+    ver_names = {0x0301: "TLS 1.0", 0x0302: "TLS 1.1", 0x0303: "TLS 1.2", 0x0304: "TLS 1.3"}
+    fields: dict[str, object] = {
+        "content_type": ctype_names.get(ctype, f"Type {ctype}"),
+        "version": ver_names.get(ver, f"0x{ver:04x}"),
+        "length": length,
+    }
+    if ctype == 22 and len(data) >= 6:
+        htype = data[5]
+        htype_names = {1: "Client Hello", 2: "Server Hello", 11: "Certificate", 12: "Server Key Exchange", 14: "Server Hello Done", 16: "Client Key Exchange"}
+        fields["handshake_type"] = htype_names.get(htype, f"Type {htype}")
+    layer = Layer("TLS", fields, undecoded_bytes=data[5:])
+    return layer, None, None
+
+
+def dhcp(data: bytes) -> tuple[Layer, bytes | None, Dispatch | None]:
+    """BOOTP / DHCP application protocol."""
+    if len(data) < 240:
+        return _truncated("DHCP", data)
+    op, htype, hlen, hops, xid, secs, flags = struct.unpack_from("!BBBBIHH", data, 0)
+    ciaddr = socket.inet_ntoa(data[12:16])
+    yiaddr = socket.inet_ntoa(data[16:20])
+    siaddr = socket.inet_ntoa(data[20:24])
+    giaddr = socket.inet_ntoa(data[24:28])
+    chaddr = ":".join(f"{b:02x}" for b in data[28:34])
+
+    msg_type = "BOOTP"
+    if data[236:240] == b"\x63\x82\x53\x63":
+        msg_type = "DHCP"
+        idx = 240
+        types = {1: "Discover", 2: "Offer", 3: "Request", 4: "Decline", 5: "ACK", 6: "NAK", 7: "Release", 8: "Inform"}
+        while idx < len(data) and data[idx] != 255:
+            opt = data[idx]
+            if opt == 0:
+                idx += 1
+                continue
+            if idx + 1 >= len(data):
+                break
+            opt_len = data[idx + 1]
+            if opt == 53 and opt_len >= 1 and idx + 2 < len(data):
+                t_val = data[idx + 2]
+                msg_type = f"DHCP {types.get(t_val, str(t_val))}"
+                break
+            idx += 2 + opt_len
+
+    fields: dict[str, object] = {
+        "message_type": msg_type,
+        "op": "Request" if op == 1 else "Reply",
+        "xid": f"0x{xid:08x}",
+        "client_mac": chaddr,
+        "ciaddr": ciaddr,
+        "yiaddr": yiaddr,
+        "siaddr": siaddr,
+        "giaddr": giaddr,
+    }
+    layer = Layer("DHCP", fields, undecoded_bytes=data[240:])
+    return layer, None, None
 
 
 # ---------------------------------------------------------------------------

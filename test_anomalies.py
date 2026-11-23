@@ -42,9 +42,13 @@ from backend.models import Packet, ProbeTelemetry
 from tests.unit.helpers import dns_query, udp_frame
 
 
-def run_pipeline_tests():
+def run_pipeline_tests(db_path: str = "mini_shark.db"):
     """Execute all four diagnostic anomaly tests through the E2->E3->E4 pipeline."""
-    engine = QueryEngine("mini_shark.db")
+    try:
+        engine = QueryEngine(db_path)
+    except Exception as exc:
+        print(f"[*] Note: Could not open {db_path!r} ({exc}). Using in-memory SQLite store.")
+        engine = QueryEngine(":memory:")
     dissector = ProtocolDissector()
     base_ns = int(time.time() * 1e9)
     all_alerts = []
@@ -226,6 +230,7 @@ if __name__ == "__main__":
     parser.add_argument("--target", type=str, default="192.168.130.129", help="Target server IP (default: 192.168.130.129)")
     parser.add_argument("--port", type=int, default=0, help="Target server port (53 for DNS, 8001 for HTTP)")
     parser.add_argument("--count", type=int, default=0, help="Number of packets / requests to send")
+    parser.add_argument("--db", type=str, default="mini_shark.db", help="Path to SQLite database (default: mini_shark.db)")
     args = parser.parse_args()
 
     if args.dns:
@@ -237,4 +242,4 @@ if __name__ == "__main__":
         count = args.count or 50
         generate_http_traffic(target=args.target, port=port, count=count)
     else:
-        run_pipeline_tests()
+        run_pipeline_tests(db_path=args.db)

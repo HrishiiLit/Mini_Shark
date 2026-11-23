@@ -53,6 +53,9 @@ except ImportError:
 _WINDOWS_IFACE_HINTS = ["Wi-Fi", "Wireless", "WLAN", "Ethernet", "eth0", "en0"]
 
 
+_RESOLVED_IFACE_CACHE: dict[str, str] = {}
+
+
 def _pick_interface(iface: str | None) -> str:
     """Return the best available scapy network_name for an interface.
 
@@ -64,21 +67,32 @@ def _pick_interface(iface: str | None) -> str:
     If ``iface`` is given explicitly we try to match it against friendly
     names first; if no match is found we pass it through as-is.
     """
+    key = str(iface or "__default__")
+    if key in _RESOLVED_IFACE_CACHE:
+        return _RESOLVED_IFACE_CACHE[key]
+
     if not _SCAPY_AVAILABLE:
-        return iface or "Wi-Fi"
+        res = iface or "Wi-Fi"
+        _RESOLVED_IFACE_CACHE[key] = res
+        return res
 
     try:
         iface_list = list(_SCAPY_IFACES.values())
     except Exception:
-        return iface or conf.iface
+        res = iface or conf.iface
+        _RESOLVED_IFACE_CACHE[key] = res
+        return res
 
-    if iface:
+    if iface and iface.lower() not in ("auto", "none", "default"):
         iface_lower = iface.lower()
         for entry in iface_list:
             name = getattr(entry, "name", "")
             desc = getattr(entry, "description", "")
             if iface_lower in name.lower() or iface_lower in desc.lower():
-                return getattr(entry, "network_name", name)
+                res = getattr(entry, "network_name", name)
+                _RESOLVED_IFACE_CACHE[key] = res
+                return res
+        _RESOLVED_IFACE_CACHE[key] = iface
         return iface
 
     for hint in _WINDOWS_IFACE_HINTS:
@@ -86,9 +100,13 @@ def _pick_interface(iface: str | None) -> str:
             name = getattr(entry, "name", "")
             desc = getattr(entry, "description", "")
             if hint.lower() in name.lower() or hint.lower() in desc.lower():
-                return getattr(entry, "network_name", name)
+                res = getattr(entry, "network_name", name)
+                _RESOLVED_IFACE_CACHE[key] = res
+                return res
 
-    return conf.iface
+    res = conf.iface or "Wi-Fi"
+    _RESOLVED_IFACE_CACHE[key] = res
+    return res
 
 
 class LiveCapture:
