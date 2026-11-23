@@ -20,7 +20,7 @@ from backend.models import Packet
 
 dissector = ProtocolDissector()
 
-# ── helpers to build raw frames ────────────────────────────────────────────
+# Helpers to build raw frames
 
 
 def _mac(s):
@@ -79,7 +79,7 @@ def make_packet(raw, index, ts=1_700_000_000.0):
     return Packet(index=index, timestamp=ts, length=len(raw), raw_bytes=raw)
 
 
-# ── build demo packets ──────────────────────────────────────────────────────
+# Build demo packets
 
 packets = [
     (
@@ -135,7 +135,7 @@ packets = [
     ),
 ]
 
-# ── pretty printer ───────────────────────────────────────────────────────────
+# Formatting helpers
 
 SEP = "─" * 70
 SEP2 = "═" * 70
@@ -188,7 +188,7 @@ for label, pkt in packets:
 
     print(f"└{SEP[1:]}\n")
 
-# ── stability check: packets 0 and 1 must share fingerprint ─────────────────
+# Stability check: packets 0 and 1 must share fingerprint
 print(f"{SEP}")
 print("  Fingerprint stability check (same TCP segment, TTL 64 vs 63, different MACs)")
 print(f"{SEP}")

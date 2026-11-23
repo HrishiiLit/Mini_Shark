@@ -211,7 +211,7 @@ One record per distinct in-flight packet key observed by the probes.
 | `t1_ns` / `t2_ns` | `uint64` | Optional | Capture timestamps per probe (present iff observed there) |
 | `delay_ns` | `int64` | Optional | ΔT = T₂ − T₁, present only when both observed. **Signed:** negative values are *valid data* (clock skew) and are flagged, not discarded. |
 | `match_state` | enum | Required | `matched` · `late` (T₂ after timeout) · `unmatched` (timed out) · `probe2_only` (reverse-direction or missing T₁ case) |
-| `deadline_ns` | `uint64` | Required | T₁ + timeout (default 500 ms, configurable) |
+| `deadline_ns` | `uint64` | Required | Hub receipt `now` + timeout (default 500 ms, configurable; resilient to physical clock skew) |
 | `flags` | `uint32` | Optional | `CLOCK_SKEW_SUSPECT`=1, `COLLISION_DISAMBIGUATED`=2, reserved `FRAGMENT`=4, `DUPLICATE_T2_IGNORED`=8, `FINGERPRINT_VERSION_MISMATCH`=16; `CAPACITY_EVICTED`=32 |
 | `probe1_seq` / `probe2_seq` | `uint32` | Optional | Telemetry sequence numbers, for gap/duplicate evidence |
 | `created_at_ns` | `uint64` | Required | Server-side record creation time |
@@ -227,8 +227,11 @@ One record per distinct in-flight packet key observed by the probes.
 - Exactly identical telemetry (all six fields) is suppressed for either probe
   while retained in the bounded 50,000-observation FIFO dedup cache. After cache
   eviction, duplicates can be processed again; no unbounded guarantee is made.
-- Deadline expiry is inclusive: server `now >= T1 + timeout`. Expiration runs
-  before each record as well as on a 50 ms timer, preventing timer races. A
+- Deadline expiry is inclusive: server `now >= entry.deadline_ns` (where
+  `deadline_ns = receipt_now + timeout`). Expiration runs
+  before each record as well as on a 50 ms timer, preventing timer races. Using
+  hub arrival time protects against premature drops caused by physical clock
+  drift across distributed physical nodes. A
   late match is based on server receipt/processing time, not only T2 capture
   time. Early T2 is buffered for the configured match window from server receipt
   (500 ms by default), then emits `probe2_only` with that grace deadline.
@@ -306,9 +309,8 @@ of an alert and its evidence in one transaction; schema version via
 (`captures`, `packets`-raw, `layers`, `flows`) are unchanged and keep their
 current behavior.
 
-*Naming decision pending:* the presentation specifies database file
-`minishark.db`; current code defaults to `mini_shark.db` (env `MINI_SHARK_DB`).
-Tracked as an open question in [implementation.md](implementation.md).
+*Database filename:* the codebase standardizes on `mini_shark.db`
+(overridable via env `MINI_SHARK_DB`).
 
 ## 8. Time, clocks and timestamp precision
 

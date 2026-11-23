@@ -79,7 +79,10 @@ export function PacketTable() {
           <tbody>
             {rows.map((p) => {
               const isSelected = selectedId === p.id
-              const clientBadge = p.clientLabel ? p.clientLabel.split(' ')[0] : (p.clientId != null ? `Client ${p.clientId + 1}` : 'Client')
+              const isRouterBadge = p.clientId === -1 || p.clientLabel?.toLowerCase().includes('router')
+              const clientBadge = isRouterBadge
+                ? 'Router'
+                : (p.clientLabel ? p.clientLabel.split(' ')[0] : (p.clientId != null ? `Client ${p.clientId + 1}` : 'Client'))
               const rowColor = getWiresharkRowClass(p, isSelected)
 
               return (
@@ -119,7 +122,9 @@ export function PacketTable() {
                       className={`mr-1 inline-block rounded px-1 text-[9px] font-bold ${
                         isSelected
                           ? 'bg-white/20 text-white'
-                          : 'bg-blue-100 text-blue-800'
+                          : isRouterBadge
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-blue-100 text-blue-800'
                       }`}
                     >
                       {clientBadge}
@@ -131,12 +136,12 @@ export function PacketTable() {
                   <td className={`px-2 py-1 whitespace-nowrap ${isSelected ? 'text-slate-100' : 'text-slate-800'}`}>
                     <span
                       className={`mr-1 inline-block rounded px-1 text-[9px] font-bold ${
-                        isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                        isSelected ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
                       }`}
                     >
-                      Server
+                      Dest
                     </span>
-                    {p.dstIp || 'Server'}{p.protocol === 'ICMP' || !p.dstPort ? '' : `:${p.dstPort}`}
+                    {p.dstIp || 'Destination'}{p.protocol === 'ICMP' || !p.dstPort ? '' : `:${p.dstPort}`}
                   </td>
                   <td className="px-2 py-1 text-center">
                     <ProtoBadge protocol={p.protocol} isSelected={isSelected} />

@@ -142,7 +142,7 @@ def get_hub() -> CorrelationHub:
             delay_ms = round(rec.delay_ns / 1_000_000, 3) if rec.delay_ns is not None else None
             client_probe_id = getattr(rec, "client_probe_id", 1)
             if client_probe_id == 10:
-                client_id = 0
+                client_id = -1
             elif client_probe_id <= 3:
                 client_id = max(0, client_probe_id - 1)
             elif client_probe_id >= 11:
@@ -165,7 +165,10 @@ def get_hub() -> CorrelationHub:
                 server_ip = lan_ip if lan_ip != "127.0.0.1" else "127.0.0.1"
 
             if not client_ip or client_ip == "127.0.0.1":
-                client_ip = lan_ip if (client_probe_id == 2) else f"Probe-{client_probe_id}"
+                if client_probe_id == 10:
+                    client_ip = "Router-10"
+                else:
+                    client_ip = lan_ip if (client_probe_id == 2) else f"Probe-{client_probe_id}"
 
             proto = getattr(rec, "proto", "TCP")
             drop_link = getattr(rec, "drop_link", None)

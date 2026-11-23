@@ -40,6 +40,7 @@ export interface Packet {
   byteKinds: ByteKind[]
   note?: string
   clientId?: number
+  clientLabel?: string
 }
 
 export interface Flight {

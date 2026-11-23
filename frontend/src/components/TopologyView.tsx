@@ -130,12 +130,16 @@ function Scene() {
       {/* Central Correlation Router Node (always online in hub process) */}
       <RouterNode onResetFilter={() => setFilter('')} />
 
-      {/* Egress Server Node: active or standby */}
+      {/* Egress Destination Node: active or standby */}
       {p2Connected ? (
         <ProbeNode
           position={SERVER_POS}
           color="#059669"
-          title="Server Node (Probe 2)"
+          title={
+            probes.probe2_ip && probes.probe2_ip !== '127.0.0.1'
+              ? `Destination (${probes.probe2_ip})`
+              : "Destination Node (Probe 2)"
+          }
           subtitle={
             probes.probe2_ip && probes.probe2_ip !== '127.0.0.1'
               ? probes.probe2_ip
@@ -162,7 +166,7 @@ function Scene() {
         <ProbeNode
           position={SERVER_POS}
           color="#94A3B8"
-          title="Awaiting Server Probe"
+          title="Awaiting Egress Probe"
           subtitle="Disconnected · Waiting on :9000"
           badge="Probe 2 · Standby"
           tone="slate"

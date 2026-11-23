@@ -163,6 +163,23 @@ class TestExtractInvariantFields:
         assert "icmp.type" in fields_used
         assert "icmp.code" in fields_used
 
+    def test_icmp_echo_includes_id_and_seq_and_distinguishes_pings(self):
+        # RFC 792 Echo Request: 8-byte header with id=0x1234, seq=1 vs seq=2
+        icmp1 = struct.pack("!BBHHH", 8, 0, 0, 0x1234, 1)
+        icmp2 = struct.pack("!BBHHH", 8, 0, 0, 0x1234, 2)
+        frame1 = ethernet(ipv4(icmp1, proto=1), ETHERTYPE_IPV4)
+        frame2 = ethernet(ipv4(icmp2, proto=1), ETHERTYPE_IPV4)
+
+        dec1 = _decode(frame1)
+        dec2 = _decode(frame2)
+        blob1, fields1 = extract_invariant_fields(dec1.layers)
+        blob2, fields2 = extract_invariant_fields(dec2.layers)
+
+        assert "icmp.id" in fields1
+        assert "icmp.seq" in fields1
+        assert blob1 != blob2  # Distinct pings must produce distinct blobs and fingerprints!
+
+
     def test_arp_returns_empty_blob(self):
         frame = arp_frame()
         decoded = _decode(frame)
