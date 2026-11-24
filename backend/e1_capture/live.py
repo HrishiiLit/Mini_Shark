@@ -56,7 +56,18 @@ _WINDOWS_IFACE_HINTS = ["Wi-Fi", "Wireless", "WLAN", "Ethernet", "eth0", "en0"]
 _RESOLVED_IFACE_CACHE: dict[str, str] = {}
 
 
-def _pick_interface(iface: str | None) -> str:
+def _clean_iface_str(iface: Any) -> str:
+    """Safely convert any interface reference to a string."""
+    if iface is None:
+        return ""
+    if hasattr(iface, "network_name") and getattr(iface, "network_name", None):
+        return str(iface.network_name)
+    if hasattr(iface, "name") and getattr(iface, "name", None):
+        return str(iface.name)
+    return str(iface)
+
+
+def _pick_interface(iface: Any | None) -> str:
     """Return the best available scapy network_name for an interface.
 
     On Windows, scapy uses GUID-style network_names internally but also
@@ -64,49 +75,146 @@ def _pick_interface(iface: str | None) -> str:
     We match against the friendly name so the user can say ``--iface Wi-Fi``
     and get the right GUID automatically.
 
-    If ``iface`` is given explicitly we try to match it against friendly
-    names first; if no match is found we pass it through as-is.
+    Always returns a string representation (network_name or friendly name).
     """
-    key = str(iface or "__default__")
+    iface_clean = _clean_iface_str(iface)
+    key = iface_clean or "__default__"
     if key in _RESOLVED_IFACE_CACHE:
         return _RESOLVED_IFACE_CACHE[key]
 
     if not _SCAPY_AVAILABLE:
-        res = iface or "Wi-Fi"
+        res = iface_clean or "Wi-Fi"
         _RESOLVED_IFACE_CACHE[key] = res
         return res
+
+    win_if_list: list[dict] = []
+    try:
+        from scapy.arch.windows import get_windows_if_list
+        win_if_list = get_windows_if_list()
+    except Exception:
+        win_if_list = []
 
     try:
         iface_list = list(_SCAPY_IFACES.values())
     except Exception:
-        res = iface or conf.iface
-        _RESOLVED_IFACE_CACHE[key] = res
-        return res
+        iface_list = []
 
-    if iface and iface.lower() not in ("auto", "none", "default"):
-        iface_lower = iface.lower()
+    # If explicit interface provided (and not auto/none/default)
+    if iface_clean and iface_clean.lower() not in ("auto", "none", "default"):
+        iface_lower = iface_clean.lower()
+
+        # Pass 1: Exact GUID or network_name match
+        for entry in win_if_list:
+            guid = str(entry.get("guid", ""))
+            net_name = str(entry.get("network_name") or (f"\\Device\\NPF_{guid}" if guid else ""))
+            if iface_lower in (guid.lower(), net_name.lower(), f"\\device\\npf_{guid.lower()}"):
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
+
         for entry in iface_list:
-            name = getattr(entry, "name", "")
-            desc = getattr(entry, "description", "")
+            net_name = _clean_iface_str(getattr(entry, "network_name", ""))
+            if iface_lower == net_name.lower():
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
+
+        # Pass 2: Exact friendly name match (e.g. 'Wi-Fi' == 'Wi-Fi', 'Ethernet' == 'Ethernet')
+        for entry in win_if_list:
+            name = str(entry.get("name", ""))
+            guid = str(entry.get("guid", ""))
+            net_name = str(entry.get("network_name") or (f"\\Device\\NPF_{guid}" if guid else name))
+            if name.lower() == iface_lower:
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
+
+        for entry in iface_list:
+            name = _clean_iface_str(getattr(entry, "name", ""))
+            net_name = _clean_iface_str(getattr(entry, "network_name", name))
+            if name.lower() == iface_lower:
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
+
+        # Pass 3: Exact description match
+        for entry in win_if_list:
+            desc = str(entry.get("description", ""))
+            guid = str(entry.get("guid", ""))
+            net_name = str(entry.get("network_name") or (f"\\Device\\NPF_{guid}" if guid else ""))
+            if desc.lower() == iface_lower:
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
+
+        # Pass 4: Substring match on friendly name (prioritize non-virtual)
+        for entry in win_if_list:
+            name = str(entry.get("name", ""))
+            desc = str(entry.get("description", ""))
+            guid = str(entry.get("guid", ""))
+            net_name = str(entry.get("network_name") or (f"\\Device\\NPF_{guid}" if guid else name))
+            if iface_lower in name.lower() and "virtual" not in desc.lower() and "direct" not in desc.lower():
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
+
+        # Pass 5: General substring match
+        for entry in win_if_list:
+            name = str(entry.get("name", ""))
+            desc = str(entry.get("description", ""))
+            guid = str(entry.get("guid", ""))
+            net_name = str(entry.get("network_name") or (f"\\Device\\NPF_{guid}" if guid else name))
             if iface_lower in name.lower() or iface_lower in desc.lower():
-                res = getattr(entry, "network_name", name)
-                _RESOLVED_IFACE_CACHE[key] = res
-                return res
-        _RESOLVED_IFACE_CACHE[key] = iface
-        return iface
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
 
-    for hint in _WINDOWS_IFACE_HINTS:
         for entry in iface_list:
-            name = getattr(entry, "name", "")
-            desc = getattr(entry, "description", "")
-            if hint.lower() in name.lower() or hint.lower() in desc.lower():
-                res = getattr(entry, "network_name", name)
-                _RESOLVED_IFACE_CACHE[key] = res
-                return res
+            name = _clean_iface_str(getattr(entry, "name", ""))
+            desc = _clean_iface_str(getattr(entry, "description", ""))
+            net_name = _clean_iface_str(getattr(entry, "network_name", name))
+            if iface_lower in name.lower() or iface_lower in desc.lower():
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
 
-    res = conf.iface or "Wi-Fi"
-    _RESOLVED_IFACE_CACHE[key] = res
-    return res
+        _RESOLVED_IFACE_CACHE[key] = iface_clean
+        return iface_clean
+
+    # Try matching preference hints (Wi-Fi, Wireless, Ethernet, etc.)
+    # Pass 1: Exact name matches (prefer physical Wi-Fi over virtual Microsoft Wi-Fi Direct)
+    for hint in _WINDOWS_IFACE_HINTS:
+        hint_lower = hint.lower()
+        for entry in iface_list:
+            name = _clean_iface_str(getattr(entry, "name", ""))
+            net_name = _clean_iface_str(getattr(entry, "network_name", name))
+            if name.lower() == hint_lower or net_name.lower() == hint_lower:
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
+
+        for entry in win_if_list:
+            name = str(entry.get("name", ""))
+            guid = str(entry.get("guid", ""))
+            net_name = str(entry.get("network_name") or (f"\\Device\\NPF_{guid}" if guid else name))
+            if name.lower() == hint_lower or net_name.lower() == hint_lower:
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
+
+    # Pass 2: Substring matches
+    for hint in _WINDOWS_IFACE_HINTS:
+        hint_lower = hint.lower()
+        for entry in iface_list:
+            name = _clean_iface_str(getattr(entry, "name", ""))
+            desc = _clean_iface_str(getattr(entry, "description", ""))
+            net_name = _clean_iface_str(getattr(entry, "network_name", name))
+            if hint_lower in name.lower() or hint_lower in desc.lower():
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
+
+        for entry in win_if_list:
+            name = str(entry.get("name", ""))
+            desc = str(entry.get("description", ""))
+            guid = str(entry.get("guid", ""))
+            net_name = str(entry.get("network_name") or (f"\\Device\\NPF_{guid}" if guid else name))
+            if hint_lower in name.lower() or hint_lower in desc.lower():
+                _RESOLVED_IFACE_CACHE[key] = net_name
+                return net_name
+
+    default_res = _clean_iface_str(conf.iface) or "Wi-Fi"
+    _RESOLVED_IFACE_CACHE[key] = default_res
+    return default_res
 
 
 class LiveCapture:

@@ -3,3 +3,5 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 python-multipart
+scapy>=2.5.0
+
