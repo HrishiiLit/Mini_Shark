@@ -1,30 +1,30 @@
-# Mini-Shark — A Distributed Multi-Point Latency & Packet Loss Tracing System
+# Mini-Shark — Technical Architecture & Implementation Guide
 
-**Network Traffic Monitoring & Protocol Analysis Mini-Project (23ECNP301)**  
-**Team 07** · Guide: Prof. Pooja Shettar · Branch: `main`
-
-Mini-Shark passively observes real application traffic (HTTP, UDP, TCP, ICMP, DNS) across **multiple physical observation points** — Client probes (auto-assigned IDs), an optional intermediate **Linux Router (Probe 10)**, and a server/egress **Probe 2** — correlates packet observations via a compact **64-bit BLAKE2b fingerprint**, computes one-way transit delay `ΔT = T2 - T1`, localizes silent drops within a **500 ms window** to **`link_1`** (Client → Router) vs **`link_2`** (Router → Server), evaluates deterministic diagnostic rules, persists records in SQLite (`mini_shark.db`), and streams live telemetry to a **React + Three.js** dashboard.
-
-> **Deployment guide:** For step-by-step instructions to validate first on **3 laptops** and then scale to **8–50 physical lab PCs**, see **[physical_lab_setup.md](physical_lab_setup.md)**.
+**Course Project:** Network Traffic Monitoring & Protocol Analysis (`23ECNP301`)
+**Department:** Computer Science & Engineering (Artificial Intelligence), KLE Technological University
+**Team 07** · Guide: **Prof. Pooja Shettar** · Branch: `main`
 
 ---
 
-## Problem Statement and Motivation
+## 1. System Mission & Core Motivation
 
-| Approach | Why it fails to reveal transit problems |
-| --- | --- |
-| **Single-point capture (Wireshark on one host)** | Sees only packets reaching or leaving a single NIC; cannot prove where in transit a packet disappeared or slowed down. |
-| **Synthetic ping measurements** | Routers may deprioritize or rate-limit ICMP; synthetic probes do not reflect real HTTP/TCP/UDP application queues. |
-| **Coarse SNMP polling (1–5 min intervals)** | Long polling windows average away millisecond-scale microbursts and router bufferbloat. |
+Standard network analysis approaches present fundamental limitations when diagnosing complex network anomalies:
+1. **Single-Point Sniffing (Standard Wireshark on one host):** Observes traffic arriving at or departing from only a single network interface. It cannot determine where in transit a packet was delayed, dropped, or corrupted.
+2. **Synthetic Active Probing (Ping / ICMP Traceroute):** Routers frequently rate-limit or prioritize ICMP differently from application traffic. Synthetic packets do not reflect true transport queues (TCP/HTTP/DNS).
+3. **Coarse SNMP Polling (1–5 minute windows):** Long polling intervals average away millisecond-scale microbursts, bufferbloat spikes, and brief network outages.
+
+**Mini-Shark solves these challenges by combining two capabilities:**
+* **Passive In-Band Inspection:** Decodes real application packets down to Layer 7 with exact byte spans and Wireshark display filter evaluation.
+* **Passive Multi-Point Correlation:** Observes identical packets across multiple network vantage points (Client Ingress $\to$ Intermediate Router $\to$ Server Egress), computes path-invariant 64-bit BLAKE2b fingerprints, calculates true wire transit latency $\Delta T = T_2 - T_1$, and isolates silent drops to Link 1 versus Link 2 in real time.
 
 ---
 
-## Architecture & End-to-End Data Flow
+## 2. End-to-End System Architecture
 
 ```text
 Client PCs (Link 1 Subnet)                Intermediate Router               Central Server Hub
 ┌───────────────────────────┐            ┌──────────────────────┐         ┌──────────────────────────────┐
-│ Client Probe(s)           │  Link 1    │ Linux Router         │ Link 2  │ Egress Probe 2 (--role server│
+│ Client Probe(s)           │  Link 1    │ Linux/Windows Router │ Link 2  │ Egress Probe 2 (--role server│
 │ E1 capture -> E2 BLAKE2b  ├───────────▶│ Pure L3 (No NAT)     ├────────▶│ Captures server arrival (T2) │
 │ Auto Probe ID from IP     │            │ Probe 10 (T_router)  │         └──────────────┬───────────────┘
 └─────────────┬─────────────┘            └──────────┬───────────┘                        │
@@ -38,130 +38,88 @@ Client PCs (Link 1 Subnet)                Intermediate Router               Cent
                                                                            [React + Three.js UI (:5173)]
 ```
 
-### The Four Engines
+### The Four Engines & Ownership
 
-| Engine | Name | Owner | Implemented Scope |
-| --- | --- | --- | --- |
-| **E1** | Packet Capture & Buffering | M Janaki | Built-in Linux `AF_PACKET` raw socket capture (`AFPacketCapture`, zero external deps) and Windows `Scapy + Npcap` capture (`LiveCapture`), plus offline PCAP/PCAPNG loading (`backend/e1_capture/`). |
-| **E2** | Protocol Dissection & Fingerprinting | Chhavi Mishra | Decodes Ethernet/IPv4/IPv6/TCP/UDP/ICMP/DNS/HTTP, strips hop-mutable fields (MACs, TTL, header checksums), hashes path-invariant fields into a 64-bit BLAKE2b fingerprint, and computes DNS query Shannon entropy `H(X)` (`backend/e2_dissection/`). |
-| **E3** | Multi-Point Correlation Hub | Hrishikesh Patil | Async TCP ingestion on `:9000`, 16 B `MSHK` preamble handshake, O(1) dual hash-table matching (`_table` / `_table_p2`), 500 ms `heapq` expiration min-heap, `link_1` vs `link_2` drop localization via Probe 10 (`backend/e3_flows/correlator.py`). |
-| **E4** | Diagnostics, Storage & UI | Vaibhav Kumar | Four deterministic rules (`PACKET_LOSS`, `BUFFERBLOAT`, `APP_FREEZE`, `DNS_EXFIL`), SQLite WAL persistence (`mini_shark.db`), FastAPI REST + `/ws/live` WebSocket on `:8001`, and React + Vite + Three.js dashboard on `:5173`. |
+| Engine | Name | Owner | USN | Implemented Scope | Primary Directory |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| **E1** | **Packet Capture & Buffering** | **M Janaki** | `01fe24bci067` | Built-in Linux `AF_PACKET` raw socket capture (`AFPacketCapture`, zero dependencies) and Windows `Scapy + Npcap` capture (`LiveCapture`), plus offline PCAP/PCAPNG ingestion. | [`backend/e1_capture/`](../backend/e1_capture/) |
+| **E2** | **Protocol Dissection & Fingerprinting** | **Chhavi Mishra** | `01fe24bci066` | Decodes Ethernet, ARP, IPv4, IPv6, TCP, UDP, ICMP, DNS, HTTP, TLS. Computes field byte-spans, path-invariant BLAKE2b-64 fingerprints, and DNS Shannon entropy $H(X)$. | [`backend/e2_dissection/`](../backend/e2_dissection/) |
+| **E3** | **Filtering & Multi-Point Correlation Hub** | **Hrishikesh Patil** | `01fe24bci043` | Wireshark display filter AST compiler (Mode 1), and TCP `:9000` ingestion hub with $O(1)$ dual hash tables, 500 ms `heapq` deadline timer, and Link 1 vs Link 2 drop localization (Mode 2). | [`backend/e3_flows/`](../backend/e3_flows/) |
+| **E4** | **Diagnostics, Storage & User Interface** | **Vaibhav Kumar** | `01fe24bci0...` | Four deterministic incident rules (`PACKET_LOSS`, `BUFFERBLOAT`, `APP_FREEZE`, `DNS_EXFIL`), SQLite WAL persistence (`mini_shark.db`), FastAPI REST + `/ws/live` on `:8001`, and React + Three.js UI. | [`backend/e4_query/`](../backend/e4_query/), [`frontend/`](../frontend/) |
 
 ---
 
-## Bandwidth, Batching & The 20 ms Flush Design
+## 3. Bandwidth, Batching & Wire Framing
 
 1. **24-byte `ProbeTelemetry` record (`!QQIBBH`):** `fingerprint` (8 B), `timestamp_ns` (8 B), `seq` (4 B), `probe_id` (1 B), `type_flags` (1 B), `captured_len` (2 B).
-2. **MTU-aligned batching (`_BATCH_MAX_RECORDS = 50`):** 50 records = `1,200 B` payload (`1,254 B` total wire frame with 20 B TCP + 20 B IPv4 + 14 B Ethernet), fitting cleanly under the `1,500 B` Ethernet MTU without IP fragmentation while amortizing TCP/IP header and syscall overhead by 50× (verified in [`tests/unit/test_batching.py`](../tests/unit/test_batching.py)).
-3. **Dual-trigger `20 ms` timer flush (`_BATCH_FLUSH_INTERVAL_S = 0.020`):** On low-rate flows, buffered records flush after `20 ms` instead of waiting for 50 packets—keeping telemetry delivery well inside E3's `500 ms` correlation deadline without affecting `ΔT = T2 - T1` (since `timestamp_ns` is recorded at NIC capture time).
-4. **`TCP_NODELAY = 1`:** Disables Nagle's algorithm in `TelemetryClient` so partial `< 1,200 B` batches transmit immediately rather than waiting on up to ~40 ms delayed-ACK stalls.
-5. **Anti-loop `is_infra` filtering:** Probes exclude `:9000` (telemetry), `:5173` (Vite), `:22` (SSH), HTTP `/probes` and `/ws`, external HTTPS `:443` (unless explicitly requested via `--filter`), and LAN multicast/broadcast chatter (`5353`, `5355`, `1900`, `137/138`, `123`).
+2. **MTU-aligned batching (`_BATCH_MAX_RECORDS = 50`):** 50 records = `1,200 B` payload (`1,254 B` total wire frame with 20 B TCP + 20 B IPv4 + 14 B Ethernet), fitting cleanly under the standard `1,500 B` Ethernet MTU without IP fragmentation.
+3. **Dual-trigger `20 ms` timer flush (`_BATCH_FLUSH_INTERVAL_S = 0.020`):** On low-rate flows, buffered records flush after `20 ms` instead of waiting for 50 packets—keeping telemetry delivery well inside E3's `500 ms` correlation deadline without affecting transit delay $\Delta T = T_2 - T_1$ (since timestamps are recorded at NIC capture time).
+4. **`TCP_NODELAY = 1`:** Disables Nagle's algorithm in `TelemetryClient` so partial batches transmit immediately rather than waiting on delayed-ACK stalls.
+5. **Anti-loop `is_infra` filtering:** Probes exclude `:9000` (telemetry), `:5173` (Vite), `:8001` (FastAPI), `:22` (SSH), and local multicast/broadcast chatter.
 
 ---
 
-## Technology Stack & Ports
+## 4. Technology Stack & Port Allocations
 
-| Component | Technology | Default Port / Artifact |
-| --- | --- | --- |
-| Live capture (Probes) | Python 3.10+ (`AF_PACKET` on Linux; `scapy` + Npcap on Windows) | `run_probe.py` / `run_probe.sh` / `run_probe.bat` |
-| Telemetry transport | Raw TCP, `16 B` `MSHK` preamble + `24 B` records | **TCP `9000`** |
-| Backend REST + WebSocket | FastAPI + Uvicorn | **HTTP / WS `8001`** |
-| Persistence | SQLite (WAL mode) | `mini_shark.db` (override via `MINI_SHARK_DB`) |
-| Frontend dashboard | React 19 + Vite + Tailwind + Zustand + Three.js | **HTTP `5173`** (`frontend/`) |
-| Router lab harness | Linux `ip_forward=1` + `tc netem` | `scripts/setup_router.sh` |
+| Component | Technology | Default Port / Target |
+| :--- | :--- | :--- |
+| **Edge Probes** | Python 3.10+ (`AF_PACKET` on Linux; `scapy` + Npcap on Windows) | `run_probe.py` / `run_probe.sh` / `run_probe.bat` |
+| **Telemetry Transport** | Raw TCP socket, `16 B` `MSHK` preamble + `24 B` wire records | **TCP `9000`** |
+| **Central Backend API** | FastAPI + Uvicorn (REST, SSE `/captures/stream`, WebSocket `/ws/live`) | **HTTP / WS `8001`** |
+| **Database Store** | SQLite in Write-Ahead Logging (`PRAGMA journal_mode = WAL`) | `mini_shark.db` |
+| **Observatory Frontend** | React 19 + TypeScript + Vite + Tailwind + Zustand + Three.js | **HTTP `5173`** (`frontend/`) |
+| **Router Harness** | Pure L3 IP forwarding (`ip_forward=1`) + `tc netem` / PowerShell NetEm | `scripts/setup_router.sh` / `start_router.ps1` |
 
 ---
 
-## Repository Structure
+## 5. Repository Structure
 
 ```text
-Minyaa/
-├── README.md                  # Top-level overview & quick start
-├── run_probe.py               # Live probe CLI (client, router, server roles + batching)
-├── run_probe.sh / .bat        # Zero-install probe wrappers (Linux/macOS & Windows)
-├── run_e3_server.py           # Standalone E3 TCP correlation hub CLI
-├── run.sh                     # Creates .venv, installs requirements, launches uvicorn
-├── test_anomalies.py          # Anomaly test suite (e.g. high-entropy DNS test)
-├── scripts/
-│   ├── setup_router.sh        # Pure L3 forwarding + Link 1 / Link 2 tc netem drop/delay injection
-│   └── traffic_generator.py   # HTTP, UDP stream, TCP burst, and mixed workload generator
-├── backend/
-│   ├── main.py                # FastAPI (:8001) + E3 TCP (:9000) lifespan
-│   ├── models.py              # Packet, ProbeTelemetry (24B), CorrelationRecord, DiagnosticAlert
-│   ├── probe/client.py        # TelemetryClient (16B MSHK preamble, TCP_NODELAY=1, heartbeat)
-│   ├── e1_capture/            # AFPacketCapture (Linux), LiveCapture (Win/Scapy), PCAP loader
-│   ├── e2_dissection/         # ProtocolDissector, BLAKE2b-64 fingerprint, DNS entropy
-│   ├── e3_flows/correlator.py # CorrelationHub (O(1) hash tables + 500ms min-heap + link attribution)
-│   ├── e4_query/              # Deterministic rules, SQLite repository, REST query engine
-│   └── api/                   # REST endpoints + /ws/live WebSocket manager
-├── frontend/                  # React + Vite + Three.js dashboard (:5173)
-├── tests/unit/                # Unit, batching, fingerprint, correlation, and E4 tests
-└── docs/                      # Architecture, contracts, API routes, physical lab guide
+Mini_Shark/
+├── README.md                  # Unified system overview and quick start guide
+├── CODEBASE_ARCHITECTURE.md   # Exhaustive codebase architecture and file reference
+├── RESEARCH_AND_ARCHITECTURE.md # Research blueprint, DPI specs, and mathematical models
+├── pyproject.toml             # Python build configuration and test configurations
+├── requirements.txt           # Project dependencies
+├── package.json               # Development script shortcuts
+├── project_spec.txt           # Academic curriculum specifications
+│
+├── Root Runners & Demos:
+│   ├── run_minishark.py       # Universal one-laptop launcher
+│   ├── live_demo.py           # Live Wi-Fi sniffer and dissection terminal demo
+│   ├── run_e3_server.py       # Standalone E3 TCP correlation hub CLI
+│   ├── benchmark_e3.py        # High-throughput synthetic benchmark suite
+│   ├── test_anomalies.py      # Diagnostic rules validation test
+│   ├── populate_demo_data.py  # SQLite telemetry seed script
+│   └── query_demo.py          # Display filter CLI query demo
+│
+├── Distributed Testbed Scripts:
+│   ├── run_probe.py           # Live edge capture probe CLI
+│   ├── run_probe.sh / .bat    # Zero-install probe wrappers
+│   ├── start_server.sh        # Linux central server hub runner
+│   ├── stop_server.sh         # Server teardown script
+│   ├── start_router.sh / .bat / .ps1 # Router runner and fault injection
+│   ├── start_client_linux.sh  # Linux client runner
+│   └── start_client_windows.bat / .ps1 # Windows client runner
+│
+├── backend/                   # Core Python engines (E1–E4) and FastAPI service
+├── frontend/                  # React + Three.js dashboard
+├── tests/unit/                # 153 unit and integration tests
+└── docs/                      # Comprehensive specifications and deployment guides
 ```
 
 ---
 
-## Setup & Deployment Guides
+## 6. Complete Documentation Index
 
-1. **First-time verification on 3 laptops (`Client -> Router -> Server`):** See **[Phase 1 in physical_lab_setup.md](physical_lab_setup.md#stage-1-3-laptop-pilot-deployment-prove-end-to-end-first)**.
-2. **Scaling to 8–50 lab PCs:** See **[Phase 2 in physical_lab_setup.md](physical_lab_setup.md#stage-2-scaling-to-850-physical-lab-pcs)**.
-3. **Clone URL & Prerequisites:**
-   ```bash
-   git clone https://github.com/Janaki1711/Minyaa.git
-   cd Minyaa
-   ```
-   * **Central Server (`backend`):** Python 3.10+ and `pip install -r requirements.txt` (launches on `--host 0.0.0.0 --port 8001`).
-   * **Frontend (`frontend`):** Node.js 18+ and `npm install` inside `frontend/`.
-   * **Linux Probes:** Python 3 standard library only (`sudo ./run_probe.sh ...`).
-   * **Windows Probes:** Python 3 + `pip install scapy` + [Npcap](https://npcap.com) (run Administrator terminal).
-
----
-
-## Configuration Environment Variables
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `MINISHARK_TELEMETRY_HOST` | `0.0.0.0` | E3 TCP bind address |
-| `MINISHARK_TELEMETRY_PORT` | `9000` | E3 TCP bind port |
-| `MINISHARK_MATCH_TIMEOUT_MS` | `500` | Unmatched correlation timeout (ms) |
-| `MINI_SHARK_DB` | `mini_shark.db` | SQLite database file path |
-| `VITE_API_HOST` | auto from `window.location.hostname` (fallback `http://10.108.157.2:8001`) | Backend HTTP/WS origin used by the React frontend |
-
----
-
-## Honest Overhead & Measurement Caveats
-
-* **Clock synchronization is mandatory for `ΔT = T2 - T1`:** Unsynchronized clocks trigger `CLOCK_SKEW_SUSPECT` when `delay_ns < 0` or `> 5s`. Sync probes via NTP/Chrony or compare relative trends/drops cleanly on LAN.
-* **Telemetry `< 1.5%` overhead caveat:** `24 B` metadata per ~`1,500 B` application packet yields ~1.6% payload overhead when amortized in 50-record batches, whereas pure `64 B` TCP ACKs incur higher relative overhead (`24 B / 64 B = 37.5%`).
-* **Symmetric no-NAT path:** Router forwarding must keep `NAT/MASQUERADE` disabled; rewriting source IP/port changes the BLAKE2b invariant key and breaks cross-probe matching.
-* **DNS entropy signal:** `H(X) > 4.2` flags potential DNS tunneling/exfiltration as an indicator requiring context, not standalone proof.
-
----
-
-## Roadmap
-
-Seven phases (details, acceptance criteria and risks per phase: [implementation.md](implementation.md)):
-
-| Phase | Scope | Tag (planned) / Status |
-| :---: | :--- | :--- |
-| **1** | Architecture, contracts and development foundation | `v0.1-phase1` ✅ (offline foundation) |
-| **2** | E1: distributed capture and buffering | `v0.2-phase2` ✅ (AF_PACKET / Scapy / Npcap) |
-| **3** | E2: protocol dissection and fingerprinting | `v0.3-phase3` ✅ (BLAKE2b-64 invariant & entropy) |
-| **4** | E3: telemetry ingestion and correlation | `v0.4-phase4` ✅ (:9000 hub, O(1) correlation & drops) |
-| **5** | E4: diagnostic rules and persistence | `v0.5-phase5` ✅ (4 anomaly rules & SQLite WAL) |
-| **6** | API, WebSocket delivery and React dashboard | `v0.6-phase6` ✅ (FastAPI :8001 & React 3D UI :5173) |
-| **7** | Integration, validation and final demonstration | `v1.0` 🔄 In Progress ([4-laptop deployment guide](four_laptop_deployment_guide.md)) |
-
----
-
-## Related Documents
-
-| Document | Contents |
-| --- | --- |
-| [four_laptop_deployment_guide.md](four_laptop_deployment_guide.md) | **Step-by-step 4-laptop runbook:** Arch Linux Client + Windows Client + Windows Router + Linux Server Hub ("mrq") |
-| [implementation.md](implementation.md) | Seven-phase engineering roadmap, acceptance criteria, engine ownership, and verification status |
-| [physical_lab_setup.md](physical_lab_setup.md) | 3-Laptop Pilot + 8–50 PC physical lab implementation runbook |
-| [data_contract.md](data_contract.md) | Engine-to-engine structures, BLAKE2b v1 spec, and 24-byte wire record |
-| [api_routes.md](api_routes.md) | FastAPI REST + WebSocket contract and TCP `:9000` framing |
-| [phase4-verification.md](phase4-verification.md) | Benchmarks and verification outcomes |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Engine ownership, branch rules, and contract-change policy |
+* [`docs/system_architecture_diagram.md`](system_architecture_diagram.md): Mermaid system architecture and dual-plane network diagrams.
+* [`docs/api_routes.md`](api_routes.md): Complete specification of all REST, SSE, WebSocket, and raw TCP `:9000` interfaces.
+* [`docs/data_contract.md`](data_contract.md): Shared data structures, 24-byte wire structs, and SQLite schema.
+* [`docs/four_laptop_deployment_guide.md`](four_laptop_deployment_guide.md): 4-laptop physical testbed deployment runbook.
+* [`docs/physical_lab_setup.md`](physical_lab_setup.md): Two-stage lab scaling guide: 3-laptop pilot deployment to 8–50 PC networks.
+* [`docs/laptop2_setup_guide.md`](laptop2_setup_guide.md): Setup guide for Laptop 2 (Client 2 / Receiver).
+* [`docs/two_probe_deployment.md`](two_probe_deployment.md): Two-machine probe setup and deployment plan.
+* [`docs/vm_network_setup.md`](vm_network_setup.md): Bridged VM network configuration guide.
+* [`docs/implementation.md`](implementation.md): 7-phase implementation roadmap and acceptance criteria.
+* [`docs/phase4-verification.md`](phase4-verification.md): Empirical benchmark results and verification evidence.
+* [`docs/CONTRIBUTING.md`](CONTRIBUTING.md): Team engine ownership, branch rules, and data contract guidelines.

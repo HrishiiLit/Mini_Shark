@@ -1,8 +1,8 @@
 # Mini-Shark — Two-Probe Distributed Deployment Plan
 
-**Project:** Mini-Shark (23ECNP301) · Team 07  
-**Guide:** Prof. Pooja Shettar · KLE Technological University  
-**Document:** Distributed implementation plan for real two-machine probe deployment  
+**Project:** Mini-Shark (23ECNP301) · Team 07
+**Guide:** Prof. Pooja Shettar · KLE Technological University
+**Document:** Distributed implementation plan for real two-machine probe deployment
 **Engine owner (E2):** Chhavi Mishra
 
 ---
@@ -40,8 +40,8 @@ and run all four engines across two physical machines on the same local network.
                                     ║  · ΔT = T2 − T1          ║
                                     ║                          ║
                                     ║  E4: Diagnostics + DB    ║
-                                    ║  · SQLite minishark.db   ║
-                                    ║  · FastAPI REST (3000)   ║
+                                    ║  · SQLite mini_shark.db  ║
+                                    ║  · FastAPI REST (8001)   ║
                                     ║  · WebSocket live push   ║
                                     ║                          ║
                                     ║  React Dashboard (5173)  ║
@@ -396,5 +396,5 @@ WHAT IS NEEDED FOR 2-MACHINE DEPLOYMENT:
 
 ---
 
-*Document prepared by Chhavi Mishra (E2) · Mini-Shark Team 07*  
+*Document prepared by Chhavi Mishra (E2) · Mini-Shark Team 07*
 *KLE Technological University · Hubballi, Karnataka*

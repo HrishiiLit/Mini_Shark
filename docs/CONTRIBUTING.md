@@ -11,7 +11,7 @@ rules below exist to keep the shared contracts from drifting.
 | E1 | Packet Capture & Buffering (probe-side capture, ring buffer, concurrency) | M Janaki |
 | E2 | Protocol Dissection & Invariant Fingerprinting (parsers, 64-bit hash, DNS entropy) | Chhavi Mishra |
 | E3 | Multi-Point Correlation Hub (TCP ingestion :9000, hash-table matching, min-heap timer) | Hrishikesh Patil |
-| E4 | Diagnostics, Storage & User Interface (rules, SQLite, REST/WebSocket :8000, dashboard) | Vaibhav Kumar |
+| E4 | Diagnostics, Storage & User Interface (rules, SQLite, REST/WebSocket :8001, dashboard) | Vaibhav Kumar |
 
 Cross-cutting changes (contracts, CI, config) are proposed to the whole team
 and merged with one approval from a non-author.

@@ -1,247 +1,321 @@
 # Mini-Shark Codebase Architecture & File Reference Guide
 
-Mini-Shark is a distributed, high-performance network latency and packet-loss observatory. It traces packets across multi-hop network topologies by calculating **path-invariant fingerprints** (BLAKE2b-64) at distributed ingress probes, correlating them against egress probe observations in real-time at a central hub, and visualizing traffic, latency spikes, and silent drops on an interactive 3D WebGL dashboard.
+Mini-Shark is an advanced, high-performance network protocol analysis and distributed telemetry observatory. It features a unified dual-mode architecture:
+1. **Wireshark-Parity Packet Analyzer (Single-Host Mode):** Captures live wire traffic (via Linux `AF_PACKET` raw sockets or Windows `Scapy + Npcap`) or reads offline PCAP/PCAPNG captures, decodes protocols from Layer 2 through Layer 7 with exact field byte-spans, evaluates Wireshark display filter expressions using a full Lexer/AST compiler, aggregates bidirectional 5-tuple flows, persists data in SQLite WAL mode, and renders a classic 3-pane packet analyzer (Packet Table, Protocol Tree, and Hex Dump).
+2. **Distributed Multi-Point Telemetry & Latency Tracing (Multi-Host Mode):** Deploys lightweight capture probes across multi-hop topologies (Clients, Intermediate Router, and Destination Server), calculates path-invariant 64-bit BLAKE2b fingerprints, streams compact 24-byte telemetry records over TCP port `9000` with MTU-aligned batching and Nagle disabling (`TCP_NODELAY = 1`), correlates packets in real time inside a 500 ms sliding min-heap window, localizes silent packet drops to Link 1 versus Link 2, runs 4 deterministic diagnostic rules, and animates live packet flights on an interactive 3D WebGL (Three.js) topology canvas.
 
 ---
 
+## 1. System Pipeline Architecture
+
 ```mermaid
 flowchart TD
-    subgraph Ingress Probes ["Ingress Probes (Client VMs / Nodes)"]
-        P1["run_probe.py (Probe 1)"]
-        P3["run_probe.py (Probe 3)"]
+    subgraph DataPlane ["In-Band Data Plane (Application Traffic)"]
+        direction LR
+        C1["Client 1 / Sender\n(Probe 11)"]
+        Router["Intermediate Router\n(Probe 10 - L3 No NAT)"]
+        Server["Destination Server / Client 2\n(Probe 2)"]
+        C1 -- "Link 1: HTTP / UDP / Ping" --> Router
+        Router -- "Link 2: Forwarded Traffic" --> Server
     end
 
-    subgraph Central Hub ["Server Node (VM1: 192.168.130.129)"]
-        E3Server["E3 Correlator Hub (:9000)\nbackend/e3_flows/correlator.py"]
-        FastAPI["FastAPI REST & WebSocket (:8001)\nbackend/api/routes.py"]
-        SQLite[("SQLite Store\nmini_shark.db")]
-        P2["run_probe.py (Egress Probe 2)"]
+    subgraph Probes ["Distributed Probes (E1 Capture + E2 Dissection)"]
+        direction TB
+        P1["run_probe.py (Client Probe)"]
+        PR["run_probe.py (Router Probe 10)"]
+        P2["run_probe.py (Server Probe 2)"]
     end
 
-    subgraph Frontend Dashboard ["Observatory Frontend (:5173)"]
+    C1 -. "Sniff NIC" .-> P1
+    Router -. "Sniff NIC" .-> PR
+    Server -. "Sniff NIC" .-> P2
+
+    subgraph CentralHub ["Central Observatory Hub (Backend :8001 + E3 :9000)"]
+        direction TB
+        E3["E3 Telemetry Hub (:9000)\nbackend/e3_flows/correlator.py\nO(1) Hash Table + 500ms Min-Heap"]
+        E4["E4 Query & Diagnostics\nbackend/e4_query/engine.py\nSQLite WAL + 4 Incident Rules"]
+        FastAPI["FastAPI REST & WebSocket (:8001)\nbackend/api/routes.py\n/captures, /query, /probes, /ws/live"]
+        DB[("SQLite WAL Store\nmini_shark.db")]
+
+        E3 -->|"Correlated Records & Transit Delay"| E4
+        E3 -->|"Live Event Stream"| FastAPI
+        E4 -->|"Persist Alerts & Correlations"| DB
+        E4 -->|"Query Results"| FastAPI
+    end
+
+    P1 == "24-byte Records (TCP :9000)" ==> E3
+    PR == "24-byte Records (TCP :9000)" ==> E3
+    P2 == "24-byte Records (TCP :9000)" ==> E3
+
+    subgraph Frontend ["Observatory Frontend (:5173 / React + Three.js)"]
+        direction TB
+        Store["useCaptureStore.ts (Zustand)"]
+        ViewSwitcher["3-Way View Switcher (App.tsx)"]
         ThreeCanvas["3D Topology Canvas\nTopologyView.tsx"]
-        Table["Packet Inspector & Table\nPacketTable.tsx / Inspector.tsx"]
-        Zustand["Global State Store\nuseCaptureStore.ts"]
+        Table["Packet Table & Status Badges\nPacketTable.tsx"]
+        Tree["Hierarchical Protocol Tree & HexDump\nProtocolTree.tsx"]
+
+        Store <--> ThreeCanvas
+        Store <--> Table
+        Store <--> Tree
+        ViewSwitcher --> ThreeCanvas
+        ViewSwitcher --> Table
+        ViewSwitcher --> Tree
     end
 
-    P1 -- "24-byte Telemetry over TCP" --> E3Server
-    P3 -- "24-byte Telemetry over TCP" --> E3Server
-    P2 -- "24-byte Telemetry (Local)" --> E3Server
-    E3Server -- "Correlated Records & Stats" --> FastAPI
-    FastAPI -- "Persist Records & Alerts" --> SQLite
-    FastAPI -- "WebSocket /ws/live (1000ms metrics + events)" --> Zustand
-    Zustand --> ThreeCanvas
-    Zustand --> Table
+    FastAPI <== "WebSocket /ws/live & REST API" ==> Store
 ```
 
 ---
 
-## 1. System Pipeline Overview (E1 – E4)
+## 2. Core Engine Register & Division of Responsibilities
 
-Mini-Shark is divided into four cleanly decoupled backend engines:
+Following the curriculum specifications (`23ECNP301`, Team 07):
 
-| Engine | Name | Primary Role | Key Technology |
-| :--- | :--- | :--- | :--- |
-| **E1** | **Capture Engine** | Raw packet acquisition from interfaces or files | Linux `AF_PACKET`, `pcap`/`pcapng`, Scapy |
-| **E2** | **Dissection Engine** | Layer decoding & path-invariant fingerprinting | Layer Walker, BLAKE2b-64, Shannon Entropy |
-| **E3** | **Flow & Correlation Hub** | Bidirectional TCP streaming & out-of-order correlation | Asyncio TCP Server, Min-Heap, 500ms Sliding Window |
-| **E4** | **Query & Diagnostics** | SQL persistence, Wireshark filter compiler & automated rules | SQLite WAL, Lexer/Parser, 4 Diagnostic Rules |
-
----
-
-## 2. Root Executables & Scripts
-
-### [`run_probe.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/run_probe.py)
-* **Purpose**: Live capture agent designed to run as a daemon on client machines (ingress) or the destination server (egress).
-* **Key Logic**:
-  1. Parses command line arguments: `--probe-id`, `--server`, `--iface`, `--filter`.
-  2. Resolves network interface (`_pick_linux_interface` or Windows fallback).
-  3. Connects to the central E3 hub using `TelemetryClient` over TCP port 9000, transmitting a 16-byte preamble (`MSHK\x01\x18` + `probe_id`).
-  4. In a high-throughput loop, captures raw frames using `get_live_capturer` (`AF_PACKET` socket on Linux).
-  5. Decodes invariant packet headers via `ProtocolDissector` and extracts a 64-bit BLAKE2b fingerprint.
-  6. Packs the fingerprint, sequence counter, and microsecond/nanosecond timestamp into a compact 24-byte wire struct (`ProbeTelemetry`) and streams it over TCP.
-  7. Sends idle keepalive heartbeats if traffic ceases for > 5 seconds to maintain connection health.
-
-### [`run_e3_server.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/run_e3_server.py)
-* **Purpose**: Standalone CLI runner for the E3 Correlation Hub.
-* **Key Logic**:
-  - Initializes `CorrelationHub(timeout_ms=500, probe1_id=1, probe2_id=2)`.
-  - Binds asyncio TCP server on `0.0.0.0:9000` to receive telemetry streams from distributed probes.
-
-### [`benchmark_e3.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/benchmark_e3.py)
-* **Purpose**: Performance and stress benchmarking suite for Engine E3.
-* **Key Logic**:
-  - Generates synthetic packet bursts (matched pairs, late packets, silent drops, and out-of-order deliveries).
-  - Asserts that throughput exceeds 10,000 matches/sec and that heap memory compaction properly evicts dead observations.
-
-### [`demo_e2.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/demo_e2.py) & [`demo_e3.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/demo_e3.py)
-* **Purpose**: Terminal-based demonstration scripts showcasing invariant fingerprinting and real-time out-of-order stream correlation.
-
-### [`test_anomalies.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/test_anomalies.py)
-* **Purpose**: End-to-end integration test validating the four automated diagnostic rules (Packet Loss, Bufferbloat, Application Freeze, and DNS Tunneling).
-
-### [`setup_cross_laptop_network.bat`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/setup_cross_laptop_network.bat) / [`.ps1`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/setup_cross_laptop_network.ps1)
-* **Purpose**: Windows administrative script configuring `netsh interface portproxy` rules (forwarding ports 8001, 9000, 22 to VM1), Windows Firewall rules, and routing table entries.
-
-### [`setup_vm1.sh`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/setup_vm1.sh) & [`setup_vm2.sh`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/setup_vm2.sh)
-* **Purpose**: Shell provisioning scripts for Ubuntu VMs to configure virtual interfaces (`ens33`), install system dependencies, build virtual environments, and grant `cap_net_raw` permissions.
+| Engine | Name | Primary Owner | Architectural Role | Core Algorithms & Implementation | Code Path |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **E1** | **Capture & Ingestion** | M Janaki (`01fe24bci067`) | High-speed wire packet capture, interface sniffing, PCAP/PCAPNG ingestion, and batching buffers. | Linux `AF_PACKET` raw sockets, Windows `Scapy + Npcap`, `dpkt` binary PCAP parser, 50-pkt / 20ms queue flush. | [`backend/e1_capture/`](backend/e1_capture/) |
+| **E2** | **Protocol Analysis & Dissection** | Chhavi Mishra (`01fe24bci066`) | Layered protocol decoding (L2–L7), field byte-offset tracking, path-invariant fingerprinting, and DNS entropy. | Layer Walker, Field Span Byte Mapper, BLAKE2b-64 invariant digest, Shannon entropy $H(X)$. | [`backend/e2_dissection/`](backend/e2_dissection/) |
+| **E3** | **Flow & Multi-Point Correlation Hub** | Hrishikesh Patil (`01fe24bci043`) | 5-tuple flow aggregation, display filter parsing (in Wireshark mode), and TCP `:9000` multi-point correlation (in distributed mode). | $O(1)$ dual hash tables, 500 ms `heapq` binary min-heap, transit delay $\Delta T = T_2 - T_1$, Link 1 vs Link 2 drop localization. | [`backend/e3_flows/`](backend/e3_flows/) |
+| **E4** | **Query, Storage & Diagnostics** | Vaibhav Kumar (`01fe24bci0...`) | SQLite WAL persistence, AST-to-SQL query compilation, automated root-cause incident detection, and REST/WebSocket delivery. | SQLite WAL mode (`mini_shark.db`), AST recursive-descent query engine, 4 deterministic anomaly rules, FastAPI + React UI. | [`backend/e4_query/`](backend/e4_query/), [`frontend/`](frontend/) |
 
 ---
 
-## 3. Backend Core & Pipeline
+## 3. Directory Layout & Complete File Map
 
-### [`backend/models.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/models.py)
-* **Purpose**: Canonical domain models and binary wire formats across all engines.
-* **Core Classes**:
-  - `Packet`: Raw packet representation with capture timestamp, wire length, payload, and link-layer metadata.
-  - `Layer`: Protocol layer container (`name`, `fields` dictionary, `undecoded_bytes`).
-  - `DecodedPacket`: Packet with its complete decoded layer stack, extracted five-tuple, 64-bit fingerprint, and Shannon entropy.
-  - `Flow`: Bi-directional conversation grouping aggregated by normalized 5-tuple with timing and byte statistics.
-  - `ProbeTelemetry`: 24-byte binary wire struct exchanged between probe agents and the correlation hub:
-    ```
-    0                   1                   2                   3
-    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                     64-bit Fingerprint                        |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                  64-bit Timestamp (ns)                        |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |       16-bit Probe ID         |       16-bit Cap Length       |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                     32-bit Sequence No                        |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    ```
-  - `CorrelationRecord`: The matched/unmatched result between Ingress and Egress probes, including transit delay $\Delta T = T_2 - T_1$ and clock skew flags.
-  - `DiagnosticAlert`: Incident alerts flagged by automated diagnostic rules (`packet_loss`, `bufferbloat`, `app_freeze`, `dns_tunneling`).
-
-### [`backend/errors.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/errors.py)
-* **Purpose**: Centralized custom exception hierarchy (`MiniSharkError`, `FilterSyntaxError`, `CorrelatorTimeoutError`, `StorageError`).
-
-### [`backend/interfaces.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/interfaces.py)
-* **Purpose**: Abstract Base Classes (ABCs) enforcing interface contracts for `EngineE1`, `EngineE2`, `EngineE3`, and `EngineE4`.
-
-### [`backend/pipeline.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/pipeline.py)
-* **Purpose**: Pure batch analysis orchestrator.
-* **Key Function**: `analyze(file_path)` sequentially executes `CaptureLoader -> ProtocolDissector -> FlowGrouper -> QueryEngine.store` to ingest static trace files into the database.
-
-### [`backend/main.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/main.py)
-* **Purpose**: Application entrypoint.
-* **Key Logic**: Initializes FastAPI with CORS middleware, mounts REST routes from `backend.api.routes`, and triggers background startup of the E3 TCP hub on port 9000.
+```text
+Mini_Shark/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                 # GitHub Actions CI workflow (linting, tests, package verification)
+├── .gitignore                     # Repository ignore rules (cache, venv, databases, temp files)
+├── .pre-commit-config.yaml        # Pre-commit hook configurations (Black, Ruff, YAML checks)
+├── pyproject.toml                 # Build system, package metadata, and tool configs (pytest, ruff)
+├── requirements.txt               # Python package dependencies
+├── package.json                   # Top-level workspace script shortcuts
+├── project_spec.txt               # Academic specification & team engine register
+├── README.md                      # Primary repository documentation and unified quick start
+├── CODEBASE_ARCHITECTURE.md       # Comprehensive codebase architecture & file reference (this document)
+├── RESEARCH_AND_ARCHITECTURE.md   # Research blueprint, DPI specifications, and mathematical foundations
+│
+├── Root Runners & Demonstrations/
+│   ├── run_minishark.py           # Universal one-laptop launcher (API :8001 + E3 :9000 + browser)
+│   ├── live_demo.py               # Live Wi-Fi sniffer and dissection terminal demo
+│   ├── run_e3_server.py           # Standalone CLI runner for the E3 Correlation Hub
+│   ├── benchmark_e3.py            # High-throughput synthetic benchmark for E3 correlation engine
+│   ├── test_anomalies.py          # End-to-end integration test validating the 4 diagnostic rules
+│   ├── populate_demo_data.py      # Seed script populating SQLite with realistic multi-probe telemetry
+│   ├── query_demo.py              # CLI demo executing Wireshark display filters against SQLite
+│   ├── demo_e2.py                 # Terminal demo for protocol dissection and invariant hashing
+│   ├── demo_e3.py                 # Terminal demo for real-time out-of-order stream correlation
+│   └── run.sh                     # Automated shell launcher (venv setup, pip install, uvicorn run)
+│
+├── Distributed Testbed Scripts/
+│   ├── run_probe.py               # High-throughput probe agent (client, router, server roles)
+│   ├── run_probe.sh               # Zero-dependency Linux/macOS probe launcher wrapper
+│   ├── run_probe.bat              # Zero-dependency Windows probe launcher wrapper
+│   ├── start_server.sh            # Linux central hub runner (API + E3 + Vite UI + local probe 2)
+│   ├── stop_server.sh             # Graceful process teardown script for background server jobs
+│   ├── start_router.sh            # Linux intermediate router runner with L3 forwarding
+│   ├── start_router.bat           # Windows router launcher wrapper
+│   ├── start_router.ps1           # Windows PowerShell router runner with IP forwarding & NetEm faults
+│   ├── start_client_linux.sh      # Arch/Ubuntu Linux client runner with traffic generator & probe
+│   ├── start_client_windows.bat   # Windows client launcher wrapper
+│   ├── start_client_windows.ps1   # Windows PowerShell client runner with traffic generation & probe
+│   ├── setup_cross_laptop_network.bat # Windows netsh portproxy and firewall configurator
+│   ├── setup_cross_laptop_network.ps1 # PowerShell cross-laptop networking and port forward helper
+│   ├── setup_vm1.sh               # Ubuntu VM1 (Central Hub) network & dependency setup
+│   └── setup_vm2.sh               # Ubuntu VM2 (Probe/Client) network & dependency setup
+│
+├── scripts/
+│   ├── setup_router.sh            # Pure L3 Linux router setup with tc netem drop/delay injection
+│   ├── setup_server_network.sh    # Linux server firewall and return route configurator
+│   ├── setup_windows_router.ps1   # Windows PowerShell routing and packet forwarding configuration
+│   ├── traffic_generator.py       # Multi-mode traffic generator (HTTP, UDP stream, TCP burst, DNS)
+│   └── traffic_receiver.py       # Lightweight HTTP/UDP destination sink for client-to-client tests
+│
+├── backend/                       # Python Backend (Engines E1 – E4, API & Models)
+│   ├── __init__.py                # Package initialization
+│   ├── main.py                    # FastAPI application entrypoint with E3 lifespan & dashboard mount
+│   ├── models.py                  # Canonical domain models, binary wire structs, and match flags
+│   ├── interfaces.py              # Abstract Base Classes (ABCs) defining EngineE1–EngineE4 contracts
+│   ├── errors.py                  # Custom exception hierarchy (MiniSharkError, FilterError, etc.)
+│   ├── pipeline.py                # Batch pipeline orchestrator (Capture -> Dissect -> Flow -> Store)
+│   ├── api/
+│   │   ├── __init__.py            # API subpackage initialization
+│   │   └── routes.py              # FastAPI endpoints (REST, SSE stream, WebSocket /ws/live)
+│   ├── probe/
+│   │   ├── __init__.py            # Probe client subpackage initialization
+│   │   └── client.py              # TelemetryClient socket manager (MSHK preamble, 24B framing)
+│   ├── e1_capture/
+│   │   ├── __init__.py            # E1 subpackage exports
+│   │   ├── engine.py              # CaptureEngine: offline PCAP/PCAPNG parser using dpkt
+│   │   └── live.py                # AFPacketCapture (Linux) & LiveCapture (Windows Scapy/Npcap)
+│   ├── e2_dissection/
+│   │   ├── __init__.py            # E2 subpackage exports
+│   │   ├── engine.py              # ProtocolDissector: layer walker, fingerprinting, Shannon entropy
+│   │   ├── protocols.py           # Dissectors for Ethernet, ARP, IPv4, IPv6, TCP, UDP, ICMP, DNS, HTTP
+│   │   └── registry.py            # Protocol dispatch registry routing byte slices to layer dissectors
+│   ├── e3_flows/
+│   │   ├── __init__.py            # E3 subpackage exports
+│   │   ├── __main__.py            # Standalone CLI entrypoint for running the E3 correlation hub
+│   │   ├── correlator.py          # CorrelationHub: O(1) hash tables, 500ms min-heap, link drop isolation
+│   │   ├── engine.py              # FlowGrouper: 5-tuple bidirectional conversation aggregation
+│   │   ├── correlation.py         # Packet correlation helpers and data transformation utilities
+│   │   └── ingestion.py           # Low-level TCP telemetry ingestion protocol handling
+│   ├── e4_query/
+│   │   ├── __init__.py            # E4 subpackage exports
+│   │   ├── engine.py              # QueryEngine: unified coordinator for store, query, and diagnostics
+│   │   ├── storage.py             # CaptureStore: SQLite repository with Write-Ahead Logging (WAL)
+│   │   ├── filters.py             # Wireshark display filter Lexer, recursive-descent AST, SQL compiler
+│   │   └── diagnostics.py         # 4 deterministic incident rules (Loss, Bufferbloat, Freeze, DNS exfil)
+│   └── static/
+│       └── index.html             # Pre-built standalone fallback dashboard served at root
+│
+├── frontend/                      # React 19 + Vite + Tailwind + Three.js Dashboard
+│   ├── index.html                 # HTML shell and entry point
+│   ├── package.json               # Frontend dependencies and npm scripts
+│   ├── package-lock.json          # Deterministic dependency lockfile
+│   ├── tsconfig.json              # TypeScript root configuration
+│   ├── tsconfig.app.json          # TypeScript application configuration
+│   ├── tsconfig.node.json         # TypeScript Vite configuration
+│   ├── vite.config.ts             # Vite build and dev-server configuration
+│   ├── .oxlintrc.json             # Linter configuration
+│   ├── README.md                  # Frontend-specific architecture and component documentation
+│   ├── public/                    # Static assets, SVG icons, and fallback pages
+│   └── src/
+│       ├── main.tsx               # React application bootstrapping
+│       ├── App.tsx                # Main view layout and 3-way view switcher
+│       ├── App.css / index.css    # Tailwind CSS imports and custom utility styles
+│       ├── config.ts              # Dynamic API and WebSocket host resolution
+│       ├── types.ts               # Complete TypeScript type definitions matching backend models
+│       ├── components/
+│       │   ├── HeaderBar.tsx      # Navigation bar, probe status pills, client tags, filter search box
+│       │   ├── SimulationBar.tsx  # Mode switcher (Live vs Demo) and synthetic fault injection buttons
+│       │   ├── TopologyView.tsx   # Three.js 3D WebGL scene with animated packet flights and drop rings
+│       │   ├── Inspector.tsx      # Container housing PacketTable, ProtocolTree, and HexDump
+│       │   ├── PacketTable.tsx    # Tabular list of packets with status badges and transit latency deltas
+│       │   └── ProtocolTree.tsx   # Hierarchical layer tree with invariant highlights and raw Hex Dump
+│       ├── lib/
+│       │   ├── topology.ts        # 3D spatial node coordinates and quadratic Bézier curve mathematics
+│       │   └── frames.ts          # Mock telemetry generators and Wireshark frame parsers
+│       └── store/
+│           └── useCaptureStore.ts # Central Zustand store managing WebSocket feeds, metrics, and filter state
+│
+├── tests/unit/                    # Comprehensive Pytest Suite (153 Tests)
+│   ├── helpers.py                 # Test fixtures, raw frame constructors (Ethernet/IP/TCP/UDP/DNS)
+│   ├── test_academic_cases.py     # Academic syllabus validation test cases
+│   ├── test_api.py                # REST endpoints and OpenAPI schema smoke tests
+│   ├── test_batching.py           # Telemetry client 50-pkt / 20ms queue flush tests
+│   ├── test_e1_capture.py         # DPKT/Scapy PCAP loader tests
+│   ├── test_e1_live.py            # Live capture socket tests and loop-back filter validation
+│   ├── test_e2_dissection.py      # Layer-by-layer protocol parsing tests
+│   ├── test_e2_fingerprint.py     # Path-invariance property tests for BLAKE2b-64 digest
+│   ├── test_e3_correlation.py     # Out-of-order, late arrival, and link drop correlation tests
+│   ├── test_e3_flows.py           # 5-tuple flow grouping tests
+│   ├── test_e3_ingestion.py       # TCP :9000 protocol framing, preamble, and heartbeat tests
+│   ├── test_e4_query.py           # Wireshark AST filter parsing and SQLite storage tests
+│   ├── test_errors.py             # Error hierarchy and validation tests
+│   └── test_pipeline.py           # End-to-end batch analysis pipeline tests
+│
+└── docs/                          # In-Depth Project Documentation & Specifications
+    ├── README.md                  # Detailed system documentation and technical manual
+    ├── system_architecture_diagram.md # Comprehensive Mermaid architecture and network diagrams
+    ├── data_contract.md           # Engine-to-engine data contract, binary wire structs, and schema
+    ├── api_routes.md              # Complete specification of all REST, SSE, WS, and TCP interfaces
+    ├── implementation.md          # 7-phase implementation roadmap, acceptance criteria, and milestones
+    ├── four_laptop_deployment_guide.md # Step-by-step physical lab runbook for 4 distinct laptops
+    ├── physical_lab_setup.md      # Scaling guide: 3-laptop pilot deployment to 8–50 PC lab networks
+    ├── laptop2_setup_guide.md     # Dedicated guide for configuring Laptop 2 (Client 2 / Receiver)
+    ├── two_probe_deployment.md    # Two-machine distributed setup plan
+    ├── vm_network_setup.md        # VMware / VirtualBox bridged VM network configuration guide
+    ├── phase4-verification.md     # Empirical verification and synthetic benchmark results
+    ├── phase4-benchmark.json      # Raw JSON benchmark data for E3 correlation engine
+    └── CONTRIBUTING.md            # Contribution guidelines, branch conventions, and contract change rules
+```
 
 ---
 
-## 4. Backend Subsystems
+## 4. In-Depth Backend Subsystem Reference
 
-### Engine E1: Capture Subsystem
-* [`backend/e1_capture/engine.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/e1_capture/engine.py):
-  Reads offline PCAP and PCAP-NG files using `dpkt` (with resilient Scapy fallback). Extracts packet timestamps and handles microsecond vs nanosecond precision headers.
-* [`backend/e1_capture/live.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/e1_capture/live.py):
-  Provides `AFPacketCapture`, utilizing Linux `socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))` to capture raw Ethernet frames with minimal overhead. Automatically resolves the active network interface and prevents loops by ignoring probe traffic to `:9000`.
+### 4.1. Domain Models (`backend/models.py`)
+`models.py` serves as the contract across all four engines:
+* **`Packet`**: Immutable representation of a raw frame (`index`, `timestamp`, `length`, `raw_bytes`).
+* **`Layer`**: An individual protocol layer containing its `name`, a dictionary of parsed `fields`, and any trailing `undecoded_bytes`.
+* **`DecodedPacket`**: The complete hierarchical representation containing the full list of `Layer` objects, the computed 64-bit `PacketFingerprint`, and optional DNS Shannon entropy `dns_entropy`.
+* **`PacketFingerprint`**: Contains `algorithm` (`"blake2b-64"`), `version` (1), `value` (64-bit integer), and `fields_used`.
+* **`ProbeTelemetry`**: The compact 24-byte wire struct exchanged over TCP `:9000`:
+  ```text
+  0                   1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                     64-bit Fingerprint                        |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                  64-bit Timestamp (ns)                        |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                     32-bit Sequence No                        |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |    Probe ID   |  Type / Ver   |       Captured Length         |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  ```
+* **`TelemetryPreamble`**: 16-byte connection header (`MSHK\x01\x18\x00\x00` + 32-bit epoch timestamp + reserved bytes).
+* **`CorrelationRecord`**: Match result produced by E3 (`fingerprint`, `probe1_observed`, `probe2_observed`, `t1_ns`, `t2_ns`, `delay_ns`, `match_state`, `flags`, `router_observed`, `drop_link`).
+* **`DiagnosticAlert`**: Automated incident alerts (`category`, `severity`, `confidence`, `detected_at_ns`, `recommended_action`, `metrics`).
+* **`Flow`**: 5-tuple conversation grouping (`flow_id`, `five_tuple`, `packet_indices`, `packet_count`, `byte_count`, `start_ts`, `end_ts`, `duration`).
 
-### Engine E2: Dissection & Fingerprinting Subsystem
-* [`backend/e2_dissection/engine.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/e2_dissection/engine.py):
-  - `_walk()`: Traverses link, network, transport, and application layers until reaching payload or unparsed bytes.
-  - `_compute_fingerprint()`: Feeds extracted path-invariant bytes into `hashlib.blake2b(digest_size=8)` to produce a 64-bit integer fingerprint.
-  - `_dns_shannon_entropy()`: Calculates character entropy $H(X) = -\sum p \log_2(p)$ across DNS query strings to catch encoded tunneling.
-* [`backend/e2_dissection/registry.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/e2_dissection/registry.py):
-  Maintains the dispatch table that routes parsed bytes to specific protocol dissectors based on preceding headers (EtherType, IP protocol, TCP/UDP port).
-* [`backend/e2_dissection/protocols.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/e2_dissection/protocols.py):
-  Dissectors for Ethernet, VLAN, ARP, IPv4, IPv6, TCP, UDP, ICMP, DNS, HTTP.
-  Contains `extract_invariant_fields()`, which filters out mutable fields (TTL, Checksum, IP TOS) and keeps only path-invariant fields (`ip.src`, `ip.dst`, `ip.proto`, `ip.id`, `tcp.seq`, `tcp.ack`, payload prefix).
+### 4.2. Engine E1: Capture & Ingestion (`backend/e1_capture/`)
+* **`engine.py` (`CaptureEngine`)**: Parses offline PCAP and PCAPNG files using `dpkt` (with graceful fallback). Extracts epoch timestamps with microsecond or nanosecond precision and streams `Packet` instances.
+* **`live.py` (`AFPacketCapture` / `LiveCapture`)**:
+  - On Linux: Allocates a raw network socket using `socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))`. Zero dependencies, kernel-level timestamping, minimal CPU overhead.
+  - On Windows: Uses Scapy bound to Npcap kernel driver (`\Device\NPF_{GUID}`) in promiscuous mode.
+  - Automatic loop avoidance: Automatically filters out probe control traffic directed to port `9000` or local SSH/Vite ports.
 
-### Engine E3: Flow & Correlation Subsystem
-* [`backend/e3_flows/correlator.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/e3_flows/correlator.py):
-  - Manages the `CorrelationHub` and the asyncio TCP server on `:9000`.
-  - **Bidirectional Ingestion**:
-    - When Ingress Probe (P1/P3) telemetry arrives, it checks if Egress Probe (P2) has already recorded the packet in `_table_p2`. If yes, it computes latency $\Delta T = T_2 - T_1$, generates a `matched` `CorrelationRecord`, and notifies listeners. If not, it buffers in `_table` with a min-heap deadline.
-    - When Egress Probe (P2) telemetry arrives first (out-of-order), it matches against `_table`, or buffers in `_table_p2`.
-  - **Eviction Loop**: Periodically pops expired entries from the min-heap. Unmatched ingress entries after 500ms are marked as `unmatched` (silent drop on the wire).
-  - `probe_status()`: Returns active probe connections, deduplicating connections and exposing live client IPs.
-* [`backend/e3_flows/engine.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/e3_flows/engine.py):
-  `FlowGrouper`: Groups packets into directional 5-tuple conversations and computes aggregate packet, byte, and duration metrics.
+### 4.3. Engine E2: Dissection & Fingerprinting (`backend/e2_dissection/`)
+* **`engine.py` (`ProtocolDissector`)**: Iterates through protocol headers using `_walk()`. For each layer, records field values and exact byte spans `(start_offset, length)` for UI highlighting.
+* **`protocols.py`**: Dissectors for Ethernet II, 802.1Q VLAN, ARP, IPv4, IPv6, TCP, UDP, ICMP, DNS, HTTP/1.x, and TLS ClientHello.
+* **Path-Invariant Hashing**: Extracts `ip.src`, `ip.dst`, `ip.proto`, `ip.id`, `tcp.seq`, `tcp.ack`, and payload prefix while strictly excluding mutable fields (TTL, IP header checksum, MAC addresses, TCP/UDP checksums). Hashes the canonical byte representation with BLAKE2b (8-byte output).
+* **Shannon Entropy**: Calculates $H(X) = -\sum p(x) \log_2 p(x)$ across DNS query strings to catch base64/hex-encoded data exfiltration tunnels.
 
-### Engine E4: Storage, Query & Diagnostics Subsystem
-* [`backend/e4_query/storage.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/e4_query/storage.py):
-  `CaptureStore`: High-speed SQLite repository utilizing Write-Ahead Logging (`PRAGMA journal_mode = WAL`) and prepared statements to persist captures, decoded packets, correlation records, and diagnostic alerts.
-* [`backend/e4_query/filters.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/e4_query/filters.py):
-  Tokenizer, recursive descent parser, and SQL compiler supporting Wireshark display filter syntax (e.g. `ip.src == 192.168.130.128 && tcp.port == 80`).
-* [`backend/e4_query/diagnostics.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/e4_query/diagnostics.py):
-  Contains the four root-cause incident detection engines:
+### 4.4. Engine E3: Flow & Correlation Hub (`backend/e3_flows/`)
+* **`correlator.py` (`CorrelationHub`)**: Runs an asynchronous TCP server on port `9000`.
+  - Maintains dual hash tables: `_table` (ingress records awaiting egress) and `_table_p2` (egress records arriving earlier than ingress).
+  - Uses an in-memory priority queue (`heapq`) sorted by expiration deadline ($T_1 + 500\text{ ms}$).
+  - Multi-Hop Drop Localization: When Probe 10 (Transit Router) is active, missing packets are attributed to **Link 1** (Client $\to$ Router) if Probe 10 never saw them, or **Link 2** (Router $\to$ Server) if Probe 10 saw them but Probe 2 did not.
+* **`engine.py` (`FlowGrouper`)**: Aggregates decoded packets into directional conversations keyed by `(src_ip, dst_ip, src_port, dst_port, protocol)`.
+
+### 4.5. Engine E4: Storage, Query & Diagnostics (`backend/e4_query/`)
+* **`storage.py` (`CaptureStore`)**: High-throughput SQLite repository configured with Write-Ahead Logging (`PRAGMA journal_mode = WAL`) and synchronous normal mode. Stores captures, decoded packets, correlation flights, and diagnostic incidents.
+* **`filters.py`**: Wireshark display filter engine. Features a lexical tokenizer, recursive-descent AST parser, and an in-memory evaluator plus SQL compiler supporting complex boolean logic (`&&`, `||`, `!`, `==`, `!=`, `<`, `>`).
+* **`diagnostics.py`**: Four deterministic incident detection rules:
   1. `rule_packet_loss`: Triggers when dropped packet percentage exceeds 5%.
-  2. `rule_bufferbloat`: Triggers when latency spikes exceed 60ms with significant jitter.
-  3. `rule_app_freeze`: Identifies stall intervals where network packets flow normally but the application fails to respond.
-  4. `rule_dns_exfil`: Flags suspicious Shannon entropy ($H > 3.8$) in DNS subdomains.
+  2. `rule_bufferbloat`: Triggers when one-way transit delay exceeds 20 ms with high variance.
+  3. `rule_app_freeze`: Detects connection stalls where packets flow but the remote peer ceases acknowledgments.
+  4. `rule_dns_exfil`: Triggers when DNS subdomain Shannon entropy exceeds 4.2 bits.
 
-### API & Network Daemon
-* [`backend/api/routes.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/api/routes.py):
-  - REST endpoints for `/health`, `/probes`, `/correlations/stats`, `/captures`, `/flows`, `/alerts`.
-  - `/ws/live`: Persistent WebSocket streaming live correlation events and 1-second system metrics to dashboard clients.
-* [`backend/probe/client.py`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/backend/probe/client.py):
-  `TelemetryClient`: Handles socket lifecycle for probe agents, including exponential-backoff reconnects, 16-byte protocol negotiation, and framed 24-byte telemetry dispatch.
+### 4.6. API & Probe Client (`backend/api/` & `backend/probe/`)
+* **`backend/api/routes.py`**: Exposes FastAPI endpoints for captures, inspector data, flows, statistics, live capture streaming, probe connection statuses, and `/ws/live` WebSocket push notifications.
+* **`backend/probe/client.py` (`TelemetryClient`)**: Handles resilient probe-to-hub communication, including 16-byte connection preambles, 24-byte record packing, automatic reconnection with backoff, zero Nagle delays (`TCP_NODELAY = 1`), and idle heartbeat transmission.
 
 ---
 
 ## 5. Frontend Architecture (React + Three.js)
 
-```mermaid
-flowchart LR
-    subgraph UI Components
-        HB["HeaderBar.tsx\nProbe pills & filter input"]
-        SB["SimulationBar.tsx\nLive/Demo toggles & client counts"]
-        TV["TopologyView.tsx\nThree.js 3D Canvas"]
-        HUD["ClientsHUD.tsx\nSource IP badges & click filters"]
-        PT["PacketTable.tsx\nCorrelated packet stream"]
-        Tree["ProtocolTree.tsx & HexDump\nLayer inspector"]
-    end
+The frontend is built with React 19, TypeScript, Vite, Tailwind CSS, Zustand, and React-Three-Fiber.
 
-    subgraph State & Utils
-        Store["useCaptureStore.ts\nZustand store & WS connection"]
-        Topo["topology.ts\n3D curves & client coords"]
-        Frames["frames.ts\nPacket parser & mock generators"]
-    end
+### 5.1. 3-Way View Switcher (`App.tsx`)
+Users can dynamically switch between three views using the header toggle:
+1. **Split View (Default):** Displays the 3D WebGL Topology Canvas in the upper pane and the 3-pane Wireshark Inspector in the lower pane.
+2. **3D Topology Canvas:** Maximizes the interactive WebGL scene for live network flow and latency monitoring.
+3. **Wireshark Panes:** Maximizes the classic 3-pane packet analysis interface (Packet Table, Protocol Tree, and Hex Dump).
 
-    Store <--> TV
-    Store <--> PT
-    Store <--> HB
-    Store <--> HUD
-    Store <--> SB
-    Store <--> Tree
-    Topo --> TV
-    Frames --> Store
-```
-
-### Core Configuration & State
-* [`frontend/src/config.ts`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/config.ts):
-  Dynamically detects browser host to configure API (`http://192.168.130.129:8001`) and WebSocket (`ws://192.168.130.129:8001/ws/live`) endpoints across physical/VM testbeds.
-* [`frontend/src/types.ts`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/types.ts):
-  Full TypeScript type definitions for `Packet`, `Flight`, `ClientNodeInfo`, `ProtocolLayer`, `ProbesStatus`, and `CorrelationRecord`.
-* [`frontend/src/store/useCaptureStore.ts`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/store/useCaptureStore.ts):
-  Central Zustand store holding application state:
-  - Connects to `/ws/live` and polls `/probes` every 2 seconds.
-  - Automatically updates client definitions based on active ingress probe IPs.
-  - Maps incoming correlation events to particle flight animations and updates the ring buffer of recent packets (max 240).
-  - Provides display filter matching (`packetMatchesFilter`).
-
-### 3D Visualization & Canvas
-* [`frontend/src/lib/topology.ts`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/lib/topology.ts):
-  Defines 3D coordinates for clients, router hub, and server node. Computes memoized quadratic Bézier curves (`getClientCurve`, `curveOut`) for smooth particle flight interpolation.
-* [`frontend/src/components/TopologyView.tsx`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/components/TopologyView.tsx):
-  React-Three-Fiber WebGL scene:
-  - Renders physical cable geometry with dynamic glowing shader cores.
-  - Animates `PacketParticle` meshes traversing the Bézier cables.
-  - Visualizes silent drops with red shockwave rings at the point of loss.
-  - Displays interactive `ProbeNode` components for clients, router hub, and destination server.
-* [`frontend/src/components/ClientsHUD.tsx`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/components/ClientsHUD.tsx):
-  Floating overlay displaying active traffic source nodes (`[C1]`, `[C2]`) with one-click filtering by source IP.
-
-### Packet Inspection & Controls
-* [`frontend/src/components/HeaderBar.tsx`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/components/HeaderBar.tsx):
-  Top navigation header displaying Mini-Shark status badges, live probe connection pills, and Wireshark search filter box.
-* [`frontend/src/components/PacketTable.tsx`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/components/PacketTable.tsx):
-  Tabular packet list with status badges (`✅ Matched`, `❌ Dropped on Wire`, `⚠️ High Latency`), client tags, protocol labels, and computed transit deltas.
-* [`frontend/src/components/ProtocolTree.tsx`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/components/ProtocolTree.tsx):
-  Hierarchical dissection pane showing Ethernet $\to$ IPv4 $\to$ TCP/UDP $\to$ Invariants. Highlights path-invariant fields in cyan and strikethroughs mutable fields (TTL/Checksum). Includes raw hexadecimal payload viewer (`HexDump`).
-* [`frontend/src/components/Inspector.tsx`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/components/Inspector.tsx):
-  Lower layout panel hosting `PacketTable`, `ProtocolTree`, and `HexDump`.
-* [`frontend/src/components/SimulationBar.tsx`](file:///C:/Users/chhav/OneDrive/Desktop/mini_shark/frontend/src/components/SimulationBar.tsx):
-  Control bar enabling switching between **Live Network** mode (real distributed probes) and **Demo Simulation** mode (with synthetic 5% drop rate, 60ms delay spike, and DNS burst injection buttons).
+### 5.2. Component Breakdown
+* **`HeaderBar.tsx`**: Shows Mini-Shark branding, live probe status pills (Client, Router, Server), active client source tags, and the Wireshark search filter bar.
+* **`SimulationBar.tsx`**: Provides controls to switch between Live Network mode and Demo Simulation mode, with instant fault-injection buttons (Inject 5% Drops, Inject 60ms Delay, Inject DNS Burst).
+* **`TopologyView.tsx`**: Renders the 3D scene using Three.js:
+  - Renders physical fiber cables using glowing shader lines.
+  - Animates `PacketParticle` meshes moving along quadratic Bézier curves.
+  - Displays expanding red shockwave rings at the exact cable location where silent drops occur.
+  - Interactive probe nodes with tooltips and packet counters.
+* **`PacketTable.tsx`**: Displays the live virtualized packet list with client source tags (`[C1]`, `[C2]`), protocol badges, calculated transit latency $\Delta T$, and loss indicators.
+* **`ProtocolTree.tsx`**: Hierarchical tree viewer for decoded layers. Path-invariant fields are highlighted in cyan, mutable fields (TTL, Checksum) have strikethrough styling, and payload bytes are displayed in an interactive Hex Dump viewer.
+* **`useCaptureStore.ts`**: Central Zustand state store managing WebSocket streams, ring buffers (up to 240 recent packets), client node discovery, and filter evaluation.

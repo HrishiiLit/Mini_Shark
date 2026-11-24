@@ -1,98 +1,114 @@
-# Mini-Shark: Single-Laptop Research & Architecture Blueprint
+# Mini-Shark: Research Blueprint, DPI Architecture & Mathematical Foundations
 
-**Project:** 23ECNP301 — Mini-Project (Team 07, CSE-AI)  
+**Course Project:** 23ECNP301 — Mini-Project (Team 07, CSE-AI)  
 **Artefact:** Live Network Packet Capture and Protocol Analysis Tool ("Mini-Shark")  
+**Institution:** KLE Technological University  
 **Guide:** Prof. Pooja Shettar  
-**Target Workspace:** `D:\Sem_5\CNS\CN_Lab\mini_project\Mini_Shark`  
 
 ---
 
 ## 1. Academic & Engine Register Alignment
 
-Based on the verified curriculum document `Team07_S2_revised.docx`, Mini-Shark is partitioned into four student-owned engines:
+Based on the verified curriculum register (`project_spec.txt`):
 
-| Engine | Name | Student Owner | Core Function | Algorithmic Paradigm |
-| :--- | :--- | :--- | :--- | :--- |
-| **E1** | **Capture & Ingestion** | **Student A** (M Janaki, `01fe24bci067`) | Captures live wire packets, timestamps with nanosecond precision, assigns sequential IDs, and buffers. | Producer-Consumer Queue + Bounded Buffer |
-| **E2** | **Protocol Analysis & Packet Dissection** | **Student B** (Chhavi Mishra, `01fe24bci066`) | Layered protocol decoder down to L7; extracts fields, computes protocol tree, and maps exact byte-offset ranges. | Layered Recursive Dissector + Shannon Entropy |
-| **E3** | **Filtering & Query** | **Student C** (Hrishikesh Patil, `01fe24bci043`) | Parses display filters (e.g. `tcp.port == 80 && ip.src == 192.168.1.1`) and selects matching packets. | Lexer + Recursive-Descent AST + Expression Tree |
-| **E4** | **Statistics, Flow & Expert Analysis** | **Student D** (Vaibhav Kumar, `01fe24bci0...`) | Aggregates 5-tuple bidirectional conversations, computes bandwidth/packet stats, and detects TCP/DNS anomalies. | Hash-Map Flow Tracker + TCP State Machine |
+| Engine | Approved Name | Student Owner | USN | Core Algorithmic Paradigm | Main Responsibilities |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| **E1** | **Capture & Ingestion** | **M Janaki** | `01fe24bci067` | Bounded Producer-Consumer Ring Buffer | Live wire packet capture, interface sniffing, PCAP/PCAPNG ingestion, nanosecond timestamping, and 50-pkt / 20ms queue flush. |
+| **E2** | **Protocol Analysis & Packet Dissection** | **Chhavi Mishra** | `01fe24bci066` | Layered Recursive Dissector + Shannon Entropy | L2–L7 protocol parsing, field byte-span tracking, BLAKE2b-64 invariant key formulation, and DNS exfiltration entropy. |
+| **E3** | **Filtering & Query / Correlation Hub** | **Hrishikesh Patil** | `01fe24bci043` | Lexer + AST Parser + Dual Hash Min-Heap | Wireshark display filter AST compiler (Mode 1), and TCP `:9000` multi-point correlation hub with 500ms sliding min-heap & drop localization (Mode 2). |
+| **E4** | **Statistics, Flow & Expert Analysis** | **Vaibhav Kumar** | `01fe24bci0...` | 5-Tuple Flow Tracker + Deterministic Rules | Bidirectional conversation grouping, SQLite WAL persistence, 4 deterministic anomaly rules, FastAPI REST/WebSocket, and React UI. |
 
 ```mermaid
 graph TD
-    NIC["Network Interface / PCAP File"] -->|Raw Bytes| E1["E1: Capture & Ingestion (Producer-Consumer Queue)"]
-    E1 -->|Raw Frame + Timestamp + ID| E2["E2: Protocol Analysis & Dissection (L2-L7 Tree + Byte Offsets)"]
+    NIC["Network Interface / PCAP File"] -->|Raw Wire Bytes| E1["E1: Capture & Ingestion (Producer-Consumer Queue)"]
+    E1 -->|Raw Frame + Timestamp + ID| E2["E2: Protocol Analysis & Dissection (L2-L7 Tree + Byte Spans)"]
     E2 -->|Decoded Fields & Protocol Tree| E3["E3: Filtering & Query (Lexer + AST Expression Tree)"]
     E2 -->|Decoded L4/L7 Metadata| E4["E4: Flows, Statistics & Expert Diagnostics (5-Tuple + TCP State)"]
     E3 -->|Filtered Packets| UI["Wireshark 3-Pane UI (Table / Tree / Hex Dump)"]
     E4 -->|Flows, Stats & Expert Warnings| UI
-    E1 & E2 & E3 & E4 -->|Batched Async WAL| DB[("SQLite Database mini_shark.db")]
+    E1 & E2 & E3 & E4 -->|Batched Async WAL| DB[("SQLite Database: mini_shark.db")]
 ```
 
 ---
 
-## 2. Why & How Mini-Shark Works on a Single Laptop
+## 2. Deep Packet Inspection (DPI) & Wireshark Parity
 
-In a multi-host physical lab, testing requires 4 physical machines, routing tables, and NTP clock synchronization. Running Mini-Shark **on a single laptop** provides an immediate, robust environment for academic evaluation, code defense, and feature demonstration.
+Wireshark's core dissector architecture relies on two fundamental abstractions:
+1. `tvbuff_t` (*Testy Virtual Buffer*): A bounded byte array slice with safe bounds checking to avoid out-of-bounds memory faults.
+2. `proto_tree`: A hierarchical tree where each node references the exact byte offset range `(start_offset, length)` inside the raw packet frame.
 
-### Three Capture Modes on One Machine
-1. **Live Interface Sniffing (Wi-Fi / Ethernet)**:
-   - On Windows: Scapy + Npcap (`\Device\NPF_{GUID}`) in promiscuous or non-promiscuous mode.
-   - On Linux: Zero-dependency raw `AF_PACKET` sockets (`socket(AF_PACKET, SOCK_RAW, htons(0x0003))`).
-   - Captures real local applications (web browsing, DNS queries, Spotify, YouTube).
-2. **Offline PCAP / PCAPNG Replay**:
-   - Ingests standard `.pcap` files via binary parser (`struct.unpack_from` for Global and Packet Headers).
-   - Guarantees 100% deterministic reproducibility for lab vivas without requiring active internet.
-3. **Local Synthetic Traffic Injection**:
-   - An integrated script generating controlled HTTP GET/POST, DNS query spikes, ICMP pings, and high-entropy DNS tunneling simulations (`base64` encoded subdomain labels) directly against `127.0.0.1` or the local gateway.
-
----
-
-## 3. Deep Packet Inspection (DPI) & Wireshark Parity
-
-Wireshark’s dissector architecture relies on two core data structures:
-* `tvbuff_t` (*Testy Virtual Buffer*): A bounded byte array slice with safe bounds checking.
-* `proto_tree`: A hierarchical tree where each node references the exact `(start_offset, length)` inside the raw packet bytes.
-
-### Mini-Shark Dissection Architecture
-
-To achieve true Wireshark parity, each protocol layer returns:
-1. `name`: Protocol name (e.g., `IPv4`, `TCP`, `DNS`).
-2. `fields`: Key-value dictionary of dissected fields.
-3. `field_spans`: Dictionary mapping each field name to its exact byte range `(start_offset, length)` within the raw Ethernet frame.
-4. `undecoded_bytes`: Trailing payload bytes passed to the next dissector in the dispatch chain.
+### 2.1. Mini-Shark Dissection Architecture
+Each protocol dissector in `backend/e2_dissection/protocols.py` inspects raw bytes and returns:
+1. `name`: Protocol name (e.g., `Ethernet`, `IPv4`, `TCP`, `DNS`).
+2. `fields`: Parsed key-value dictionary of header fields.
+3. `field_spans`: Exact byte range `(start_offset, length)` within the raw frame.
+4. `undecoded_bytes`: Trailing payload bytes dispatched to the next layer in the registry.
 
 ```text
 Raw Packet Frame (14 + 20 + 20 + Payload bytes):
 [ 0 .. 13 ]  Ethernet II Header     -> dst_mac [0:6], src_mac [6:12], ethertype [12:14]
 [ 14 .. 33 ] IPv4 Header           -> ver_ihl [14], total_len [16:18], id [18:20], ttl [22], proto [23], src [26:30], dst [30:34]
 [ 34 .. 53 ] TCP Header            -> sport [34:36], dport [36:38], seq [38:42], ack [42:46], flags [47:48], win [48:50]
-[ 54 .. N  ] HTTP / DNS / Payload   -> payload bytes
+[ 54 .. N  ] HTTP / DNS / Payload   -> application payload bytes
 ```
 
-### Supported Protocol Hierarchy
-* **Layer 2 (Data Link)**:
-  - **Ethernet II**: Destination MAC, Source MAC, EtherType (`0x0800` IPv4, `0x86DD` IPv6, `0x0806` ARP, `0x8100` VLAN).
-  - **ARP**: Hardware Type, Protocol Type, Opcode (Request `1`, Reply `2`), Sender MAC/IP, Target MAC/IP.
-* **Layer 3 (Network)**:
-  - **IPv4**: Version, IHL, DSCP/ECN, Total Length, Identification, Flags (DF, MF), Fragment Offset, TTL, Protocol, Header Checksum, Source IP, Destination IP.
-  - **IPv6**: Version, Traffic Class, Flow Label, Payload Length, Next Header, Hop Limit, Source/Destination IPv6.
-* **Layer 4 (Transport)**:
-  - **TCP**: Source Port, Destination Port, Sequence Number, Acknowledgment Number, Data Offset, Flags (`SYN`, `ACK`, `FIN`, `RST`, `PSH`, `URG`, `ECE`, `CWR`), Window Size, Checksum, Urgent Pointer.
-  - **UDP**: Source Port, Destination Port, Length, Checksum.
-  - **ICMP / ICMPv6**: Type, Code, Checksum, Identifier, Sequence Number (for Echo Request `8` / Echo Reply `0`).
-* **Layer 7 (Application)**:
-  - **DNS (UDP/TCP 53)**: Transaction ID, Flags (QR, Opcode, AA, TC, RD, RA, RCODE), QDCount, ANCount. Recursive DNS label parser supporting name pointer decompression (`0xC0` offset jump). Computes Shannon entropy $H(X) = -\sum p(b) \log_2 p(b)$ on query names.
-  - **HTTP/1.x (TCP 80, 8080, 8000)**: Request/Status line parsing, HTTP Method (`GET`, `POST`, `PUT`, `DELETE`), Request URI, HTTP Version, Headers map, Content-Length.
-  - **TLS (TCP 443)**: Handshake Content Type (`0x16`), Handshake Type (`0x01` Client Hello), TLS Version (`0x0303`), SNI (*Server Name Indication*) extension extraction allowing identification of the encrypted destination domain.
+### 2.2. Supported Protocol Hierarchy
+* **Layer 2 (Data Link):**
+  * **Ethernet II:** Destination MAC, Source MAC, EtherType (`0x0800` IPv4, `0x86DD` IPv6, `0x0806` ARP, `0x8100` VLAN).
+  * **ARP:** Hardware Type, Protocol Type, Opcode (Request `1`, Reply `2`), Sender MAC/IP, Target MAC/IP.
+* **Layer 3 (Network):**
+  * **IPv4:** Version, IHL, DSCP/ECN, Total Length, Identification, Flags (DF, MF), Fragment Offset, TTL, Protocol, Header Checksum, Source IP, Destination IP.
+  * **IPv6:** Version, Traffic Class, Flow Label, Payload Length, Next Header, Hop Limit, Source/Destination IPv6.
+* **Layer 4 (Transport):**
+  * **TCP:** Source Port, Destination Port, Sequence Number, Acknowledgment Number, Data Offset, Flags (`SYN`, `ACK`, `FIN`, `RST`, `PSH`, `URG`, `ECE`, `CWR`), Window Size, Checksum, Urgent Pointer.
+  * **UDP:** Source Port, Destination Port, Length, Checksum.
+  * **ICMP / ICMPv6:** Type, Code, Checksum, Identifier, Sequence Number (Echo Request `8`, Echo Reply `0`).
+* **Layer 7 (Application):**
+  * **DNS (UDP/TCP 53):** Transaction ID, Flags (QR, Opcode, AA, TC, RD, RA, RCODE), QDCount, ANCount, recursive label decompression (`0xC0` pointer jumps).
+  * **HTTP/1.x (TCP 80, 8080, 8000):** Request/Status line parsing, HTTP Method (`GET`, `POST`, `PUT`, `DELETE`), Request URI, HTTP Version, Headers map, Content-Length.
+  * **TLS (TCP 443):** Handshake Content Type (`0x16`), Handshake Type (`0x01` Client Hello), TLS Version (`0x0303`), SNI (*Server Name Indication*) extension extraction.
+
+---
+
+## 3. Mathematical Formulations & Algorithms
+
+### 3.1. Path-Invariant BLAKE2b-64 Fingerprinting
+In multi-hop routing, packet headers are modified at every router hop (TTL decrements, IP checksum updates, MAC rewrites). To match observations of the same packet across different probes without full packet mirroring, E2 extracts only the path-invariant fields:
+
+$$\text{InvariantKey} = \Big(\text{IP}_{\text{src}}, \; \text{IP}_{\text{dst}}, \; \text{IP}_{\text{proto}}, \; \text{IP}_{\text{id}}, \; \text{TCP}_{\text{seq}}, \; \text{TCP}_{\text{ack}}, \; \text{PayloadPrefix}_{0..16}\Big)$$
+
+$$\text{Fingerprint} = \text{BLAKE2b}\Big(\text{CanonicalBytes}(\text{InvariantKey}), \; \text{digest\_size}=8\Big) \pmod{2^{64}}$$
+
+### 3.2. One-Way Transit Latency & Multi-Hop Drop Localization
+Given an ingress timestamp $T_1$ (Probe 11), intermediate transit timestamp $T_{\text{router}}$ (Probe 10), and egress timestamp $T_2$ (Probe 2):
+* **One-Way Transit Delay:**
+  $$\Delta T = T_2 - T_1$$
+* **Multi-Hop Drop Localization:**
+  $$\text{DropLocation} = \begin{cases}
+  \text{Link 1 (Client } \to \text{ Router)} & \text{if } T_1 \text{ observed, } T_{\text{router}} \text{ not observed within } 500\text{ ms} \\
+  \text{Link 2 (Router } \to \text{ Destination)} & \text{if } T_{\text{router}} \text{ observed, } T_2 \text{ not observed within } 500\text{ ms} \\
+  \text{Unmatched Drop} & \text{if Router probe is offline and } T_2 \text{ not observed}
+  \end{cases}$$
+
+### 3.3. DNS Shannon Entropy for Data Exfiltration Detection
+Data exfiltration attacks via DNS tunneling embed encrypted or base64/hex-encoded payloads inside subdomain labels (e.g. `a8f3b9c1d4e2.malicious.com`). While natural language domain names have low entropy ($H \approx 2.0 - 3.2$), encoded tunneling labels exhibit high informational entropy.
+
+Mini-Shark computes Shannon entropy $H(X)$ over the character distribution of the query label:
+
+$$H(X) = -\sum_{i=1}^{n} P(x_i) \log_2 P(x_i)$$
+
+Where:
+* $n$ is the number of distinct characters appearing in the domain string.
+* $P(x_i) = \frac{\text{count}(x_i)}{\text{total length}}$.
+* **Threshold:** If $H(X) > 4.2$ bits per character, Engine E4 raises a `DNS_EXFIL` diagnostic alert.
 
 ---
 
 ## 4. Engine E3: Lexer & Expression Tree Query Engine
 
-Engine E3 implements a recursive-descent parser that parses Wireshark-style display filters into an Abstract Syntax Tree (AST), supporting both fast in-memory filtering of live packet streams and SQL compilation for stored sessions.
+Engine E3 implements a recursive-descent parser that translates Wireshark display filter strings into an Abstract Syntax Tree (AST), supporting both fast in-memory filtering and SQL query compilation.
 
-### Formal Grammar (EBNF)
+### 4.1. Formal EBNF Grammar
 ```ebnf
 Expression   := OrExpr
 OrExpr       := AndExpr ( ("||" | "or") AndExpr )*
@@ -100,104 +116,103 @@ AndExpr      := NotExpr ( ("&&" | "and") NotExpr )*
 NotExpr      := ("!" | "not") NotExpr | Primary
 Primary      := "(" Expression ")" | Comparison | BareProtocol
 Comparison   := FieldName Op Literal
-Op           := "==" | "!=" | ">" | ">=" | "<" | "<=" | "contains" | "startswith" | "endswith" | "in"
-BareProtocol := "tcp" | "udp" | "icmp" | "dns" | "http" | "arp" | "ip"
+Op           := "==" | "!=" | ">" | ">=" | "<" | "<=" | "contains" | "startswith" | "endswith"
+BareProtocol := "tcp" | "udp" | "icmp" | "dns" | "http" | "arp" | "ip" | "tls"
+FieldName    := "ip.src" | "ip.dst" | "ip.addr" | "ip.proto" | "tcp.port" | "tcp.seq" | "udp.port" | "dns.qry.name"
 ```
 
 ---
 
-## 5. Engine E4: Statistics, Flow & Expert Analysis
+## 5. Engine E4: Canonical 5-Tuple Flow Aggregation
 
-### 1. Canonical 5-Tuple Flow Aggregation
-Conversations are grouped using an invariant bidirectional key:
-$$\text{Endpoint}_1 = (\text{IP}_A, \text{Port}_A), \quad \text{Endpoint}_2 = (\text{IP}_B, \text{Port}_B)$$
-$$\text{FlowKey} = \Big(\min(\text{Endpoint}_1, \text{Endpoint}_2), \; \max(\text{Endpoint}_1, \text{Endpoint}_2), \; \text{Protocol}\Big)$$
+Bidirectional conversations are grouped using a normalized flow key:
+$$\text{Endpoint}_A = (\text{IP}_A, \text{Port}_A), \quad \text{Endpoint}_B = (\text{IP}_B, \text{Port}_B)$$
+$$\text{FlowKey} = \Big(\min(\text{Endpoint}_A, \text{Endpoint}_B), \; \max(\text{Endpoint}_A, \text{Endpoint}_B), \; \text{Protocol}\Big)$$
 
-Each flow computes:
-- Packet count and total byte volume
-- Flow start timestamp, end timestamp, and total duration ($\Delta t$)
-- Instantaneous throughput ($\text{bps}$, $\text{pps}$)
-
-### 2. TCP State Machine & Expert Diagnostics
-E4 monitors packet sequences within each flow to detect network degradation:
-* **TCP Retransmission**: A packet arrives with the same `(Seq, Length)` as a previously observed packet.
-* **Out-of-Order Packet**: A packet arrives with $\text{Seq} < \text{NextExpectedSeq}$.
-* **TCP ZeroWindow**: A receiver advertises $\text{Window} = 0$, indicating buffer saturation.
-* **TCP Reset / Abnormal Teardown**: An unexpected `RST` flag terminating a connection.
-* **DNS Tunneling / Data Exfiltration**: Query name Shannon entropy $H > 4.2$ bits per character.
+Each flow maintains:
+* Packet count ($N$) and byte volume ($B = \sum \text{len}_i$).
+* Flow start timestamp ($T_{\text{start}}$), end timestamp ($T_{\text{end}}$), and duration ($\Delta t = T_{\text{end}} - T_{\text{start}}$).
+* Instantaneous throughput in bits/sec ($\text{bps} = \frac{8 \times B}{\max(0.001, \Delta t)}$) and packets/sec ($\text{pps}$).
 
 ---
 
-## 6. Database Schema (SQLite WAL Mode)
+## 6. Deterministic Diagnostic Rules
 
-In strict accordance with Chapter 4 (Database Design) of `Team07_S2_revised.docx`:
+Engine E4 continuously evaluates four deterministic rules:
+
+| Rule Name | Trigger Condition | Diagnostic Interpretation | Recommended Action |
+| :--- | :--- | :--- | :--- |
+| **`PACKET_LOSS`** | Unmatched drop rate $> 5\%$ over the sliding window. | Physical layer transmission errors, duplex mismatches, or buffer overflow drops. | Verify physical cabling, check interface drop counters (`netstat -s`), or inspect switch QoS drops. |
+| **`BUFFERBLOAT`** | One-way transit latency $\Delta T > 20\text{ ms}$ with high variance ($> 15\text{ ms}$ jitter). | Excessive packet buffering in intermediate router FIFO queues. | Enable Active Queue Management (AQM) such as FQ-CoDel or CAKE; reduce router queue depth. |
+| **`APP_FREEZE`** | Packets flow normally but remote application stops ACKing or advertises ZeroWindow. | Server process deadlock, memory exhaustion, or garbage collection stall. | Inspect destination application thread dumps, heap memory usage, or host CPU load. |
+| **`DNS_EXFIL`** | DNS query name Shannon entropy $H(X) > 4.2$ bits. | Covert data exfiltration tunnel embedding base64/hex data in DNS subdomains. | Block queried domain at DNS firewall; inspect client process issuing the queries. |
+
+---
+
+## 7. Unified Database Architecture (SQLite WAL)
+
+Mini-Shark standardizes on `mini_shark.db` utilizing Write-Ahead Logging (`PRAGMA journal_mode = WAL`) and prepared statements to achieve $> 25,000$ operations/sec:
 
 ```sql
-CREATE TABLE IF NOT EXISTS capture_sessions (
-    session_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    start_time REAL NOT NULL,
-    end_time REAL,
-    interface TEXT NOT NULL,
-    status TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS captures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    timestamp REAL NOT NULL,
+    packet_count INTEGER DEFAULT 0,
+    flow_count INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS packets (
-    packet_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id INTEGER NOT NULL,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    capture_id INTEGER NOT NULL REFERENCES captures(id),
     packet_index INTEGER NOT NULL,
     timestamp REAL NOT NULL,
     length INTEGER NOT NULL,
-    raw_data BLOB NOT NULL,
-    FOREIGN KEY(session_id) REFERENCES capture_sessions(session_id)
+    raw_bytes BLOB NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS packet_fields (
-    field_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    packet_id INTEGER NOT NULL,
-    protocol TEXT NOT NULL,
-    field_name TEXT NOT NULL,
-    field_value TEXT NOT NULL,
-    FOREIGN KEY(packet_id) REFERENCES packets(packet_id)
+CREATE TABLE IF NOT EXISTS layers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    capture_id INTEGER NOT NULL REFERENCES captures(id),
+    packet_index INTEGER NOT NULL,
+    layer_name TEXT NOT NULL,
+    fields_json TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS flows (
-    flow_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id INTEGER NOT NULL,
-    protocol TEXT NOT NULL,
-    src_endpoint TEXT NOT NULL,
-    dst_endpoint TEXT NOT NULL,
-    packet_count INTEGER NOT NULL DEFAULT 1,
-    byte_count INTEGER NOT NULL DEFAULT 0,
-    start_ts REAL NOT NULL,
-    end_ts REAL NOT NULL,
-    duration REAL,
-    FOREIGN KEY(session_id) REFERENCES capture_sessions(session_id)
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    capture_id INTEGER NOT NULL REFERENCES captures(id),
+    flow_id INTEGER NOT NULL,
+    five_tuple TEXT NOT NULL,
+    packet_count INTEGER NOT NULL,
+    byte_count INTEGER NOT NULL,
+    start_ts REAL,
+    end_ts REAL,
+    duration REAL
+);
+
+CREATE TABLE IF NOT EXISTS correlations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint INTEGER NOT NULL,
+    match_state TEXT NOT NULL,
+    t1_ns INTEGER,
+    t2_ns INTEGER,
+    delay_ns INTEGER,
+    flags INTEGER DEFAULT 0,
+    probe1_seq INTEGER,
+    probe2_seq INTEGER,
+    created_at_ns INTEGER NOT NULL,
+    drop_link TEXT
+);
+
+CREATE TABLE IF NOT EXISTS diagnostic_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    detected_at_ns INTEGER NOT NULL,
+    recommended_action TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    metrics_json TEXT NOT NULL
 );
 ```
-
----
-
-## 7. Phased Implementation Roadmap for `D:\Sem_5\CNS\CN_Lab\mini_project\Mini_Shark`
-
-```text
-Mini_Shark/
-├── backend/
-│   ├── e1_capture/       # [Student A] Live capture, Queue & PCAP parser
-│   ├── e2_dissection/    # [Student B] L2-L7 Dissectors + Byte Span Offsets
-│   ├── e3_filtering/     # [Student C] Lexer, AST Parser & Filter Evaluator
-│   ├── e4_expert/        # [Student D] 5-Tuple Flows, Stats & TCP Expert
-│   ├── storage/          # SQLite WAL repository (4 schema tables)
-│   ├── api/              # FastAPI REST endpoints & WebSocket streamer
-│   └── main.py           # Single-laptop server orchestrator
-├── frontend/             # Wireshark 3-Pane UI (Table + Tree + Synchronized Hex)
-├── scripts/              # Local multi-protocol traffic generator
-├── tests/                # Comprehensive unit test suite (E1 to E4)
-└── run_minishark.py      # One-click launcher for single laptop
-```
-
-* **Step 1 (E1 & Storage)**: Build the capture engine with producer-consumer queue and SQLite WAL session persistence.
-* **Step 2 (E2 Dissection)**: Implement zero-copy byte-offset protocol dissection (Ethernet, ARP, IPv4/6, TCP/UDP/ICMP, DNS, HTTP, TLS) with Shannon entropy.
-* **Step 3 (E3 Filtering)**: Build the lexer, AST parser, and evaluator for display filters.
-* **Step 4 (E4 Flows & Expert)**: Build the 5-tuple flow aggregator and TCP anomaly diagnostic engine.
-* **Step 5 (API & Wireshark UI)**: Serve the 3-pane UI with synchronized hex byte highlighting and real-time WebSocket packet streaming.
-* **Step 6 (Verification)**: Run synthetic multi-protocol traffic and verify end-to-end functionality.

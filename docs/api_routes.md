@@ -1,389 +1,462 @@
-# API Design — Mini-Shark Distributed Tracing
+# Mini-Shark API Specification & Network Interface Guide
 
-This document specifies every external interface of the central diagnostic
-server: HTTP REST (port 8000), the WebSocket dashboard stream (port 8000),
-and the probe telemetry ingestion service (raw TCP, port 9000). Payload
-shapes follow the shared [data contract](data_contract.md).
-
-**Status convention:** each endpoint is marked **Implemented** (exists in
-`backend/api/routes.py` today, serving the offline PCAP-replay mode) or
-**Proposed** (designed here, not yet in the code). Nothing marked *Proposed*
-should be documented or demoed as working.
-
-> **Port discipline:** telemetry from probes flows over **TCP 9000** and is
-> never ingested via HTTP. The REST/WebSocket surface on **port 8000** serves
-> the dashboard and operators only. Do not add an HTTP ingestion route that
-> duplicates the TCP service.
+This document is the authoritative specification for all external network interfaces of the Mini-Shark diagnostic system:
+* **HTTP REST API (Default Port: `8001`):** Wireshark-parity packet inspection, display filter queries, capture session management, edge probe status, correlation telemetry queries, and diagnostic alerts.
+* **WebSocket Live Stream (Default Port: `8001` at `/ws/live`):** Persistent full-duplex stream pushing 1-second metric snapshots, live correlation events, and real-time diagnostic alerts.
+* **Server-Sent Events (SSE) Stream (Default Port: `8001` at `/captures/stream`):** Real-time chunked stream of live wire packets.
+* **Raw TCP Telemetry Ingestion (Default Port: `9000`):** Binary streaming protocol for distributed edge probes exchanging 16-byte preambles and fixed 24-byte telemetry records.
 
 ---
 
-## 1. Health and configuration
+## 1. System Health & Runtime Status
 
-### `GET /health` — **Implemented**
-
-Liveness probe for the API process.
-
-- **Params:** none. **Auth:** none.
-- **Response 200:**
-
-```json
-{ "status": "ok" }
-```
-
-- **Errors:** none (a running server always answers 200).
-
-### `GET /ready` — **Proposed**
-
-Readiness for the distributed mode: reports whether telemetry ingestion is
-listening and database access works.
-
-- **Params:** none. **Auth:** none (deploy-internal).
-- **Response 200** when ready:
-
+### `GET /health`
+Liveness probe for the Mini-Shark API server process.
+* **Method:** `GET`
+* **Path:** `/health`
+* **Authentication:** None
+* **Response 200 OK:**
 ```json
 {
-  "status": "ready",
-  "telemetry_ingestion": { "listening": true, "port": 9000, "connected_probes": [1, 2] },
-  "database": { "ok": true, "path": "minishark.db", "schema_version": 2 }
+  "status": "ok",
+  "version": "0.4.0",
+  "e3_server": "0.0.0.0:9000",
+  "probes_connected": 2,
+  "correlation_stats": {
+    "matched": 1284,
+    "unmatched": 14,
+    "late": 2,
+    "loss_rate": 0.0108
+  }
 }
 ```
 
-- **Errors:** `503` with `"status": "starting"` / `"degraded"` and the failing
-  subsystem named.
-
-### `GET /config` — **Proposed**
-
-Effective runtime configuration (ports, timeout, ring size, fingerprint
-version). Read-only; validation of operator edits happens via environment
-variables at startup, not at runtime.
-
-- **Response 200:**
-
+### `GET /status`
+Full operational status of the central server, active correlation hub, and SQLite database.
+* **Method:** `GET`
+* **Path:** `/status`
+* **Response 200 OK:**
 ```json
 {
-  "telemetry_port": 9000,
-  "match_timeout_ms": 500,
-  "ring_slots": 10000,
-  "fingerprint_algorithm": "blake2b-64",
-  "fingerprint_version": 1,
-  "telemetry_record_bytes": 24
-}
-```
-
-## 2. Probe and telemetry ingestion
-
-### Telemetry ingestion — raw TCP, port 9000 — **Implemented (not HTTP)**
-
-Probes open one persistent TCP connection to the central server and stream
-fixed-size 24-byte telemetry records after a 16-byte connection preamble.
-Framing, validation, versioning, heartbeat and error handling are specified
-in [data contract §4](data_contract.md). Summary:
-
-| Concern | Behavior |
-| --- | --- |
-| Framing | Preamble (magic `MSHK`, version, record size, probe clock hint) then fixed 24-byte records; partial records buffered across reads |
-| Authentication | No authentication or TLS in v1; deploy internally |
-| Validation | Version/size checked at preamble; per-record field bounds; implausible timestamps flagged, not dropped |
-| Malformed input | Unknown version/type/size, nonzero reserved bytes or invalid/changing identity → logged and connection closed; no error reply |
-| Heartbeat | Explicit type-3 heartbeat; probe runtime should schedule every 5 s while idle. 15 s without valid traffic degrades; 30 s read timeout closes |
-
-Run `python -m backend.e3_flows --host 0.0.0.0 --port 9000`; emitted
-`CorrelationRecord` objects are printed as JSON lines. The library exposes
-`engine.subscribe(callback)`, `engine.get_stats()` and `server.get_status()`
-for future E4 integration. These are in-process interfaces, not implemented
-REST routes. `get_stats()` includes cumulative timeout events, late recoveries,
-uncorrected unmatched events, capacity evictions and bounded-structure sizes.
-
-There is deliberately **no** `POST /telemetry`-style HTTP endpoint: TCP
-ingestion is the contract, and adding a second ingestion path would create
-two sources of truth for the same records.
-
-### `GET /probes` — **Proposed**
-
-Probe registry and liveness (data sourced from E3 connection state + the
-`probes` table).
-
-- **Auth:** none (deploy-internal) or dashboard session, deployment choice.
-- **Response 200:**
-
-```json
-{
-  "probes": [
+  "api_port": 8001,
+  "e3_port": 9000,
+  "hub_stats": {
+    "matched": 1284,
+    "unmatched": 14,
+    "late": 2,
+    "in_flight": 3
+  },
+  "database": {
+    "total_correlations": 1300,
+    "matched": 1284,
+    "unmatched": 14,
+    "late": 2,
+    "loss_rate": 0.0108,
+    "avg_delay_ms": 3.42,
+    "p95_delay_ms": 8.15
+  },
+  "recent_alerts": [
     {
-      "probe_id": 1, "name": "client-side", "ip": "192.168.1.10",
-      "role": "source", "status": "online",
-      "last_heartbeat_ns": 1761260000123456789,
-      "clock_offset_ms_estimate": 1.2,
-      "packets_sent": 184213, "records_rejected": 0
+      "category": "BUFFERBLOAT",
+      "severity": "WARNING",
+      "confidence": "HIGH"
+    }
+  ]
+}
+```
+
+---
+
+## 2. Distributed Probe Management & Telemetry Ingestion
+
+### `GET /probes`
+Returns real-time connection status and IP addressing for all connected edge capture probes.
+* **Method:** `GET`
+* **Path:** `/probes`
+* **Response 200 OK:**
+```json
+{
+  "probe1_connected": true,
+  "probe1_ip": "192.168.1.15",
+  "probe2_connected": true,
+  "probe2_ip": "192.168.1.16",
+  "router_connected": true,
+  "router_ip": "192.168.1.10",
+  "active_clients": [
+    {
+      "ip": "192.168.1.15",
+      "probe_id": 11,
+      "records": 4820,
+      "connected_at": 1732418000.12
     },
     {
-      "probe_id": 2, "name": "server-side", "ip": "192.168.1.20",
-      "role": "destination", "status": "online",
-      "last_heartbeat_ns": 1761260000120456789,
-      "clock_offset_ms_estimate": 0.8,
-      "packets_sent": 183990, "records_rejected": 2
+      "ip": "192.168.1.10",
+      "probe_id": 10,
+      "records": 4820,
+      "connected_at": 1732418002.45
+    },
+    {
+      "ip": "192.168.1.16",
+      "probe_id": 2,
+      "records": 4806,
+      "connected_at": 1732418001.08
+    }
+  ],
+  "total_connected": 3
+}
+```
+
+### Telemetry Ingestion — Raw TCP Port `9000`
+Probes establish a single persistent TCP connection to the central server on port `9000`.
+* **Transport:** Raw TCP socket with `TCP_NODELAY = 1` (Nagle disabled).
+* **Connection Lifecycle:**
+  1. **Handshake Preamble (16 bytes):** Sent once immediately upon connection:
+     * `0..3` (4 B): Magic bytes `b"MSHK"` (`0x4D53484B`).
+     * `4` (1 B): Protocol version (`0x01`).
+     * `5` (1 B): Record size in bytes (`0x18` = 24).
+     * `6..7` (2 B): Reserved (`0x0000`).
+     * `8..11` (4 B): Probe clock epoch seconds (uint32).
+     * `12..15` (4 B): Reserved (`0x00000000`).
+  2. **Streaming Records (24 bytes each):**
+     * `0..7` (8 B): 64-bit BLAKE2b invariant packet fingerprint (`uint64`).
+     * `8..15` (8 B): Nanosecond epoch capture timestamp $T$ (`uint64`).
+     * `16..19` (4 B): Monotonic sequence counter (`uint32`).
+     * `20` (1 B): Probe ID (`uint8`, e.g. 11 = Client, 10 = Router, 2 = Server).
+     * `21` (1 B): Type flags (`uint8`, bitmask: type nibble | version nibble `0x11`).
+     * `22..23` (2 B): Captured packet length in bytes (`uint16`).
+  3. **Batching:** Probes buffer up to 50 records (`1,200` bytes payload $\le$ 1500 Ethernet MTU) or flush after `20 ms`.
+  4. **Keepalive:** Heartbeat packet (`type_flags = 0x13`) sent if idle for $> 5$ seconds.
+
+### `POST /correlations/ingest`
+Manually injects one 24-byte `ProbeTelemetry` record (used for synthetic testing, lab verification, or replaying raw records).
+* **Method:** `POST`
+* **Path:** `/correlations/ingest?hex_record=<48_hex_chars>`
+* **Query Parameters:**
+  * `hex_record` (string, required): 24 bytes formatted as 48 hex characters.
+* **Response 200 OK:**
+```json
+{
+  "result": "correlated",
+  "record": {
+    "fingerprint": "0x8F3A2B194E5C0D1A",
+    "match_state": "matched",
+    "delay_ms": 3.42,
+    "t1_ns": 1732418000100000000,
+    "t2_ns": 1732418000103420000,
+    "probe1_seq": 104,
+    "probe2_seq": 104,
+    "drop_link": null
+  }
+}
+```
+
+---
+
+## 3. Wireshark-Parity Offline Captures & Inspection
+
+### `GET /captures`
+Lists all stored PCAP/PCAPNG capture sessions.
+* **Method:** `GET`
+* **Path:** `/captures`
+* **Response 200 OK:** Array of capture metadata objects (`id`, `name`, `timestamp`, `packet_count`, `flow_count`).
+
+### `POST /captures`
+Uploads a PCAP or PCAPNG trace file, executes the full pipeline ($E1 \to E2 \to E3 \to E4$), commits records to SQLite WAL, runs automated diagnostics, and returns session statistics.
+* **Method:** `POST`
+* **Path:** `/captures`
+* **Content-Type:** `multipart/form-data`
+* **Form Field:** `file` (binary PCAP/PCAPNG file)
+* **Response 200 OK:**
+```json
+{
+  "capture_id": 1,
+  "packets": 500,
+  "flows": 24,
+  "statistics": {
+    "total_packets": 500,
+    "total_bytes": 328400,
+    "protocols": { "TCP": 420, "UDP": 60, "DNS": 20 }
+  },
+  "alerts": []
+}
+```
+
+### `GET /captures/{capture_id}/packets`
+Paginated retrieval of raw packets in a capture session.
+* **Method:** `GET`
+* **Path:** `/captures/{capture_id}/packets?offset=0&limit=50`
+* **Query Parameters:**
+  * `offset` (int, default: 0): Starting packet index.
+  * `limit` (int, default: 50, max: 500): Number of packets to retrieve.
+* **Response 200 OK:**
+```json
+{
+  "offset": 0,
+  "count": 50,
+  "packets": [
+    {
+      "index": 0,
+      "timestamp": 1732418000.124581,
+      "length": 1514,
+      "raw_bytes_hex": "001a2b3c4d5e..."
     }
   ]
 }
 ```
 
-- **Errors:** `503` if ingestion is not running.
-
-## 3. Correlation and live metrics
-
-### `GET /metrics/latency` — **Proposed**
-
-Recent one-way delay observations (sliding window, bounded).
-
-- **Query:** `window_s` (default 60, max 3600), `probe_pair` (default
-  `1,2`).
-- **Response 200:**
-
+### `GET /captures/{capture_id}/packets/{packet_index}/tree`
+Fetches the fully dissected protocol tree for a specific packet.
+* **Method:** `GET`
+* **Path:** `/captures/{capture_id}/packets/{packet_index}/tree`
+* **Response 200 OK:**
 ```json
 {
-  "window_s": 60,
-  "samples": [
-    { "t_ns": 1761260000127000000, "delay_ms": 4.0, "fingerprint": "0x8F3A2B194E5C0D1A" }
-  ],
-  "stats": { "count": 1842, "p50_ms": 3.8, "p95_ms": 6.2, "p99_ms": 11.9, "max_ms": 42.0 }
-}
-```
-
-- **Errors:** `422` invalid `window_s`; `503` ingestion down.
-- **Notes:** samples may be downsampled server-side above a configured rate;
-  `stats` is always computed over the full window.
-
-### `GET /metrics/loss` — **Proposed**
-
-Recent unmatched/timeout events (E3 `unmatched` / `late` records).
-
-- **Query:** `since_ns`, `limit` (max 500), `state` (`unmatched`|`late`).
-- **Response 200:**
-
-```json
-{
-  "events": [
+  "packet_index": 0,
+  "layers": [
     {
-      "fingerprint": "0x1A2B3C4D5E6F7081",
-      "t1_ns": 1761260000123000000,
-      "match_state": "unmatched",
-      "deadline_ns": 1761260000623000000,
-      "scope": "between probe 1 and probe 2"
+      "name": "Ethernet",
+      "fields": {
+        "src_mac": "00:5f:4e:3d:2c:1b",
+        "dst_mac": "00:1a:2b:3c:4d:5e",
+        "ethertype": 2048
+      }
+    },
+    {
+      "name": "IPv4",
+      "fields": {
+        "src": "192.168.1.15",
+        "dst": "192.168.1.16",
+        "proto": 6,
+        "ttl": 64,
+        "id": 48120
+      }
+    },
+    {
+      "name": "TCP",
+      "fields": {
+        "src_port": 54210,
+        "dst_port": 8000,
+        "seq": 10001,
+        "ack": 0,
+        "flags": 2
+      }
     }
-  ],
-  "stats": { "window_packets": 1842, "unmatched": 4, "late": 1, "loss_rate": 0.00217 }
+  ]
 }
 ```
 
-- **Notes:** the `scope` field states the honest interpretation — a timeout
-  localizes loss only to the segment between observation points.
+### `GET /captures/{capture_id}/inspector`
+Returns a unified Wireshark-style summary table including decoded protocol layers and formatted info strings for fast frontend rendering.
+* **Method:** `GET`
+* **Path:** `/captures/{capture_id}/inspector?offset=0&limit=100`
 
-### `GET /metrics/correlation` — **Proposed**
+### `GET /captures/{capture_id}/flows`
+Retrieves aggregated 5-tuple conversations.
+* **Method:** `GET`
+* **Path:** `/captures/{capture_id}/flows?limit=100`
 
-Correlation engine statistics: throughput, in-flight count, heap/table sizes,
-duplicate and collision counters, clock-quality flags.
+### `GET /captures/{capture_id}/flows/{flow_id}`
+Retrieves detailed metrics for a single 5-tuple conversation (`src_ip`, `dst_ip`, `src_port`, `dst_port`, `protocol`, `packet_count`, `byte_count`, `duration`).
 
-- **Response 200 (representative):**
+### `GET /captures/{capture_id}/statistics`
+Retrieves protocol distribution, packet count, and bandwidth statistics.
 
+---
+
+## 4. Wireshark Display Filter Engine
+
+### `POST /query`
+Evaluates a Wireshark display filter expression against stored conversations.
+* **Method:** `POST`
+* **Path:** `/query`
+* **Content-Type:** `application/json`
+* **Request Body:**
 ```json
 {
-  "ingestion": { "uptime_s": 3612, "records_per_s": 9850, "connected_probes": 2 },
-  "correlation": {
-    "in_flight": 4821, "matched_total": 1792003, "unmatched_total": 941,
-    "late_total": 88, "duplicates_ignored": 12, "collisions_disambiguated": 0,
-    "clock_suspect_flags": 3
-  },
-  "structures": { "hash_entries": 4821, "heap_entries": 4821, "heap_cap": 200000 }
+  "filter": "ip.src == 192.168.1.15 && tcp.port == 8000",
+  "capture_id": 1
+}
+```
+* **Supported Operators:** `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `and`, `||`, `or`, `!`, `not`.
+* **Supported Atoms:** `tcp`, `udp`, `dns`, `http`, `icmp`, `arp`, `ip.src`, `ip.dst`, `ip.addr`, `tcp.port`, `udp.port`, `dns.qry.name`.
+* **Response 200 OK:**
+```json
+{
+  "count": 3,
+  "flows": [
+    {
+      "flow_id": 4,
+      "five_tuple": ["192.168.1.15", "192.168.1.16", 54210, 8000, "TCP"],
+      "packet_count": 142,
+      "byte_count": 94820,
+      "duration": 4.12
+    }
+  ]
 }
 ```
 
-## 4. Diagnostics
-
-### `GET /alerts` — **Proposed**
-
-Current (unresolved) diagnostic alerts.
-
-- **Query:** `severity`, `category`, `limit` (default 100), `offset`.
-- **Response 200:**
-
+### `GET /query/fields`
+Returns all supported filterable field identifiers.
+* **Method:** `GET`
+* **Path:** `/query/fields`
+* **Response 200 OK:**
 ```json
 {
+  "fields": [
+    "ip.src", "ip.dst", "ip.addr", "ip.proto", "ip.id", "ip.ttl",
+    "tcp.port", "tcp.srcport", "tcp.dstport", "tcp.seq", "tcp.ack", "tcp.flags",
+    "udp.port", "udp.srcport", "udp.dstport", "udp.length",
+    "dns.qry.name", "dns.qry.type", "http.method", "http.uri", "http.status_code"
+  ]
+}
+```
+
+---
+
+## 5. Live Capture & Real-Time Streams
+
+### `GET /interfaces`
+Lists all available local network adapters for live capture.
+* **Method:** `GET`
+* **Path:** `/interfaces`
+* **Response 200 OK:**
+```json
+[
+  { "name": "\\Device\\NPF_{GUID} (Wi-Fi)", "description": "Intel(R) Wi-Fi 6 AX201 160MHz" },
+  { "name": "\\Device\\NPF_{GUID} (Ethernet)", "description": "Realtek Gaming GbE Family Controller" }
+]
+```
+
+### `GET /captures/live`
+Executes an active live packet capture session for `timeout` seconds.
+* **Method:** `GET`
+* **Path:** `/captures/live?timeout=30&iface=Wi-Fi&bpf_filter=tcp&persist=true`
+* **Response 200 OK:** Full capture summary with extracted fingerprints, Shannon entropy values, and diagnostic alerts.
+
+### `GET /captures/stream` (SSE Live Wire Stream)
+Server-Sent Events (SSE) stream pushing live packets in real-time as they cross the wire.
+* **Method:** `GET`
+* **Path:** `/captures/stream?iface=auto&bpf_filter=tcp`
+* **Media Type:** `text/event-stream`
+* **Event Structure:**
+  * First Event:
+    ```json
+    data: {"type": "started", "interface": "Wi-Fi", "session_id": "c7a8b3d1-..."}
+    ```
+  * Subsequent Events:
+    ```json
+    data: {
+      "type": "packet",
+      "index": 12,
+      "timestamp": 1732418005.124,
+      "src": "192.168.1.15",
+      "dst": "192.168.1.16",
+      "protocol": "TCP",
+      "length": 1420,
+      "info": "Seq=10001 [ACK]",
+      "fingerprint": "0x8F3A2B194E5C0D1A"
+    }
+    ```
+
+### `GET /captures/stream/stop`
+Terminates an active SSE stream session.
+* **Method:** `GET`
+* **Path:** `/captures/stream/stop?session_id=<UUID>`
+
+---
+
+## 6. Live WebSocket & Multi-Point Correlation Telemetry
+
+### `WS /ws/live`
+Full-duplex WebSocket connection used by the React + Three.js dashboard.
+* **Endpoint:** `ws://<SERVER_IP>:8001/ws/live`
+* **Pushed Message Types:**
+  1. **`metrics` (Sent every 1.0 s):**
+     ```json
+     {
+       "type": "metrics",
+       "timestamp": 1732418010.5,
+       "stats": {
+         "matched": 1284,
+         "unmatched": 14,
+         "late": 2,
+         "loss_rate": 0.0108,
+         "avg_delay_ms": 3.42,
+         "p95_delay_ms": 8.15
+       },
+       "probes": {
+         "probe1_connected": true,
+         "probe2_connected": true,
+         "router_connected": true,
+         "total_connected": 3
+       },
+       "recent_alerts": []
+     }
+     ```
+  2. **`correlation` (Pushed instantaneously per matched/unmatched flight):**
+     ```json
+     {
+       "type": "correlation",
+       "record": {
+         "fingerprint": "0x8F3A2B194E5C0D1A",
+         "match_state": "unmatched",
+         "delay_ms": null,
+         "t1_ns": 1732418000100000000,
+         "t2_ns": null,
+         "drop_link": "link_1",
+         "flags": 0
+       }
+     }
+     ```
+  3. **`alert` (Pushed when an anomaly rule triggers):**
+     ```json
+     {
+       "type": "alert",
+       "category": "BUFFERBLOAT",
+       "severity": "WARNING",
+       "confidence": "HIGH",
+       "recommended_action": "Inspect router queue length; enable fq_codel or reduce buffer size.",
+       "metrics": { "p95_delay_ms": 68.2, "jitter_ms": 24.5 }
+     }
+     ```
+
+### `GET /correlations`
+Queries stored cross-probe correlation records.
+* **Method:** `GET`
+* **Path:** `/correlations?match_state=matched&limit=50&offset=0`
+* **Query Parameters:**
+  * `match_state` (`matched`, `unmatched`, `late`, `probe2_only`).
+
+### `GET /correlations/stats`
+Returns aggregate correlation statistics for the active session.
+
+---
+
+## 7. Diagnostic Alerts
+
+### `GET /alerts`
+Lists stored diagnostic alerts flagged by automated incident detection rules.
+* **Method:** `GET`
+* **Path:** `/alerts?category=PACKET_LOSS&limit=50&offset=0`
+* **Supported Categories:** `PACKET_LOSS`, `BUFFERBLOAT`, `APP_FREEZE`, `DNS_EXFIL_SUSPECTED`.
+
+### `POST /alerts/diagnose`
+Forces execution of all four diagnostic rules across all current flows and correlation records.
+* **Method:** `POST`
+* **Path:** `/alerts/diagnose?capture_id=1`
+* **Response 200 OK:**
+```json
+{
+  "alerts_generated": 1,
   "alerts": [
     {
-      "alert_id": 9001,
-      "category": "BUFFERBLOAT",
-      "severity": "warning",
-      "detected_at_ns": 1761260015000000000,
-      "metrics": { "delay_trend_ms_per_s": 33.0, "p95_delay_ms": 450.0 },
-      "symptom": "Increasing one-way delay (120 → 450 ms over 90 s)",
-      "inferred_root_cause": "Sustained queue buildup on an intermediate router",
-      "recommended_action": "Enable FQ-CoDel AQM on the bottleneck router",
-      "confidence": "medium",
-      "evidence_refs": [55231, 55232, 55233]
+      "category": "PACKET_LOSS",
+      "severity": "CRITICAL",
+      "confidence": "HIGH",
+      "detected_at_ns": 1732418020100000000,
+      "recommended_action": "Verify physical Link 1 cabling or check intermediate switch drop counters.",
+      "metrics": { "drop_rate": 0.082 }
     }
   ]
 }
 ```
-
-- **Errors:** `422` unknown severity/category filter.
-
-### `GET /alerts/{alert_id}` — **Proposed**
-
-Full alert detail including the correlation records referenced by
-`evidence_refs`.
-
-- **Response 200:** the alert object plus `"evidence": [ <correlation record>, ... ]`
-  (fields per [data contract §5](data_contract.md)).
-- **Errors:** `404` unknown alert ID.
-
-### `GET /alerts/history` — **Proposed**
-
-Resolved and superseded alerts with time-range filtering.
-
-- **Query:** `from_ns`, `to_ns`, `category`, `severity`, `limit`, `offset`.
-- **Response 200:** same envelope as `/alerts`, each item additionally
-  carrying `resolved_at_ns` and, where applicable, `retracted_by` (e.g. a
-  late match).
-- **Errors:** `422` invalid time range (`to_ns < from_ns`).
-
-**Diagnostic correctness (server-enforced):** DNS-related alerts are always
-`DNS_EXFIL_SUSPECTED` with `confidence` `low` or `medium` and entropy
-evidence; no endpoint ever reports "confirmed data theft." Symptom and
-inferred root cause are separate fields on every alert.
-
-## 5. Historical storage and analysis
-
-### `GET /history/correlations` — **Proposed**
-
-Paginated correlation records from SQLite, time-range queryable.
-
-- **Query:** `from_ns`, `to_ns`, `match_state`, `min_delay_ms`, `limit`
-  (max 500), `offset`.
-- **Response 200:**
-
-```json
-{
-  "total_estimate": 18402,
-  "records": [
-    {
-      "id": 55231, "fingerprint": "0x8F3A2B194E5C0D1A",
-      "t1_ns": 1761260000123000000, "t2_ns": 1761260000127000000,
-      "delay_ms": 4.0, "match_state": "matched", "flags": 0
-    }
-  ]
-}
-```
-
-### `GET /history/flows` — **Proposed** (supplementary analytics)
-
-Flow summaries where flow tracking is enabled. Flows are *analytics*, not
-correlation records ([data contract §7](data_contract.md)).
-
-- **Query:** `from_ns`, `to_ns`, `protocol`, `limit`, `offset`.
-- **Response 200:** `[{ "flow_id": 12, "five_tuple": "...", "packets": 412, "bytes": 189344, "start_ns": ..., "end_ns": ... }]`
-
-### `GET /history/metrics` — **Proposed**
-
-Aggregated latency/loss buckets for historical charts.
-
-- **Query:** `from_ns`, `to_ns`, `bucket_s` (default 10).
-- **Response 200:**
-
-```json
-{
-  "bucket_s": 10,
-  "buckets": [
-    { "t_ns": 1761260000000000000, "p50_ms": 3.9, "p95_ms": 6.0, "loss_rate": 0.001, "packets": 98210 }
-  ]
-}
-```
-
-- **Errors:** `422` invalid range/bucket; `413` if the requested range would
-  exceed the maximum bucket count (client must widen the bucket).
-
-## 6. Live dashboard — WebSocket, port 8000
-
-### `WS /ws/live` — **Proposed**
-
-Server-push stream of live state to the React dashboard.
-
-**Connection lifecycle:**
-
-- Client connects; server immediately sends a `snapshot` message (current
-  stats, probe status, unresolved alerts) then incremental `event` messages.
-- Heartbeat: server sends ping every 5 s; client reconnects with exponential
-  backoff (1 s → 30 s cap) after any close. On reconnect the client accepts a
-  fresh `snapshot` as authoritative (no replay of missed events in v1).
-- Payloads are JSON, each with `"type"` and `"schema_version": 1`; client
-  rejects unknown types rather than guessing.
-
-**Message types (server → client):**
-
-| `type` | Payload (representative) |
-| --- | --- |
-| `snapshot` | `{ stats, probes, alerts }` — full current state on connect |
-| `latency` | `{ t_ns, delay_ms, fingerprint, p50_ms, p95_ms }` |
-| `loss` | `{ t_ns, fingerprint, match_state, deadline_ms, scope }` |
-| `probe_status` | `{ probe_id, status, last_heartbeat_ns, clock_offset_ms_estimate }` |
-| `alert` | full alert object (§4) |
-| `alert_resolved` | `{ alert_id, resolved_at_ns, reason: "late_match" \| "operator" \| "recovered" }` |
-| `error` | `{ code, message }` — non-fatal stream notice |
-
-Example:
-
-```json
-{ "type": "latency", "schema_version": 1, "t_ns": 1761260000127000000,
-  "delay_ms": 4.0, "fingerprint": "0x8F3A2B194E5C0D1A", "p50_ms": 3.8, "p95_ms": 6.2 }
-```
-
-**Client → server (v1):** subscribe/unsubscribe to message classes with
-optional server-side throttling, e.g.
-`{ "type": "subscribe", "schema_version": 1, "classes": ["latency","loss","alert"], "min_interval_ms": 100 }`.
-No other client messages are interpreted.
-
-**Rate honesty:** the presentation's "60 FPS" is a **UI rendering target**
-(smooth client-side animation). It is not a guarantee of 60 server pushes per
-second. The server batches/throttles per the client's `min_interval_ms`
-(default 100 ms ⇒ ≤10 pushes/s per class); the dashboard interpolates
-client-side for smooth rendering. Measured delivery rates are a Phase 7
-benchmark.
-
-## 7. Offline analysis routes (existing, unchanged)
-
-These **Implemented** routes serve the PCAP/PCAPNG replay mode that exists in
-the codebase today (single-file analysis, not distributed tracing). They are
-kept for offline testing and debugging and are documented here so the two
-surface areas are not confused:
-
-| Method & path | Purpose | Errors |
-| --- | --- | --- |
-| `GET /captures` | List previously analyzed captures | — |
-| `POST /captures` | Upload a PCAP/PCAPNG file; runs E1→E4 offline pipeline; returns `{capture_id, packets, flows, statistics}` | `400` empty/invalid file, `500` storage failure |
-| `GET /captures/{capture_id}/packets` | Paginated packets (`offset`, `limit` ≤ 500) | `404` unknown capture |
-| `GET /captures/{capture_id}/packets/{packet_index}/tree` | Protocol tree (`DecodedPacket`) | `404` |
-| `GET /captures/{capture_id}/flows` | Flow list (`limit` ≤ 1000) | `404` |
-| `GET /captures/{capture_id}/flows/{flow_id}` | Flow detail with member packet indices | `404` |
-| `GET /captures/{capture_id}/statistics` | Per-protocol/flow aggregates | `404` |
-| `POST /query` | Filter query, e.g. `ip.src == "10.0.0.1" && tcp.port == 443` | `400` filter syntax, `500` storage |
-| `GET /query/fields` | List filterable fields | — |
-
-A future refactor may move these under a `/offline/` prefix; any such change
-is a breaking API change requiring docs + client updates in the same PR.
-
-## 8. Conventions (all endpoints)
-
-- **Status codes:** `200` success · `400` malformed request · `404` unknown
-  resource · `413` result too large · `422` semantic validation failure ·
-  `503` subsystem unavailable · `500` internal (with typed error body).
-- **Error body shape:** `{ "detail": "<human-readable>", "code": "<machine>" }`.
-- **Times:** all `*_ns` fields are integer nanoseconds since the Unix epoch
-  (big-endian on the wire only for TCP records; JSON uses numbers — clients
-  needing exact 64-bit values should treat them as strings where their
-  runtime cannot represent them; **open question for dashboard parsing**).
-- **Pagination:** `limit` + `offset` with server-side caps; `total_estimate`
-  may be approximate under live ingestion.
-- **Authentication:** none in v1 (deploy-internal service). Any addition of
-  auth is a contract change.
-- **Versioning:** breaking REST changes bump a `/v2/` prefix; WebSocket uses
-  `schema_version`; telemetry uses the preamble/record version nibble
-  ([data contract §4](data_contract.md)).
