@@ -65,17 +65,18 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 13px; line-height: 1.4; user-select: none; }
+html, body { height: 100vh; max-height: 100vh; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 13px; line-height: 1.4; user-select: none; }
+body { display: flex; flex-direction: column; }
 .mono { font-family: var(--font-mono); }
 
 /* --- Top Menu Bar --- */
-.menubar { display: flex; align-items: center; background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 2px 8px; font-size: 12px; gap: 4px; }
+.menubar { display: flex; align-items: center; background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 2px 8px; font-size: 12px; gap: 4px; flex-shrink: 0; }
 .menu-item { padding: 3px 8px; border-radius: 4px; cursor: pointer; color: var(--text); position: relative; }
 .menu-item:hover { background: rgba(0,0,0,0.06); }
 [data-theme="dark"] .menu-item:hover { background: rgba(255,255,255,0.08); }
 
 /* --- Action Toolbar --- */
-.toolbar { display: flex; align-items: center; background: var(--panel); border-bottom: 1px solid var(--border); padding: 5px 10px; gap: 8px; flex-wrap: wrap; }
+.toolbar { display: flex; align-items: center; background: var(--panel); border-bottom: 1px solid var(--border); padding: 5px 10px; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
 .brand { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 15px; color: var(--accent); letter-spacing: -0.3px; margin-right: 6px; }
 .brand svg { width: 22px; height: 22px; fill: var(--accent); }
 
@@ -91,7 +92,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 select.iface-select { height: 28px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 12px; font-family: var(--font-sans); outline: none; }
 
 /* --- Display Filter Bar --- */
-.filterbar { display: flex; align-items: center; background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 4px 10px; gap: 6px; }
+.filterbar { display: flex; align-items: center; background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 4px 10px; gap: 6px; flex-shrink: 0; }
 .filter-icon { width: 16px; height: 16px; color: var(--text-muted); }
 .filter-input-wrap { flex: 1; display: flex; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; transition: border-color 0.15s, background-color 0.15s; }
 .filter-input-wrap.valid { border-color: #16A34A; background: color-mix(in srgb, #22C55E 7%, var(--panel)); }
@@ -107,11 +108,11 @@ select.iface-select { height: 28px; padding: 0 8px; border-radius: 4px; border: 
 .chip.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
 
 /* --- 3-Pane Main Layout --- */
-.main-panes { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--border); gap: 1px; }
+.main-panes { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; overflow: hidden; background: var(--border); gap: 1px; }
 
 /* Upper Pane: Packet Table */
-.pane-table { flex: 1.1; min-height: 120px; background: var(--panel); display: flex; flex-direction: column; overflow: hidden; position: relative; }
-.table-scroll { flex: 1; overflow-y: scroll; overflow-x: auto; }
+.pane-table { flex: 1 1 50%; min-height: 80px; background: var(--panel); display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.table-scroll { flex: 1 1 0%; min-height: 0; overflow-y: auto; overflow-x: auto; }
 table.packet-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 11.5px; text-align: left; }
 table.packet-table thead { position: sticky; top: 0; z-index: 5; background: var(--header-bg); border-bottom: 1px solid var(--border); font-family: var(--font-sans); font-size: 11px; font-weight: 600; color: var(--text-muted); }
 table.packet-table th, table.packet-table td { padding: 3px 8px; white-space: nowrap; height: 22px; vertical-align: middle; }
@@ -136,15 +137,16 @@ tr.packet-marked { background: var(--c-marked) !important; }
 .star-icon.unmarked { color: #CBD5E1; }
 
 /* Splitter Bar */
-.splitter-h { height: 4px; background: var(--border); cursor: row-resize; }
+.splitter-h { height: 5px; background: var(--border); cursor: row-resize; flex-shrink: 0; transition: background 0.15s; }
+.splitter-h:hover, .splitter-h.dragging { background: var(--accent); }
 
 /* Lower Split: Tree on left, Hex on right */
-.pane-lower { flex: 1; min-height: 120px; display: flex; background: var(--border); gap: 1px; }
+.pane-lower { flex: 1 1 50%; min-height: 100px; display: flex; overflow: hidden; background: var(--border); gap: 1px; }
 
 /* Lower-Left Pane: Protocol Tree */
-.pane-tree { flex: 1.1; background: var(--panel); display: flex; flex-direction: column; min-width: 250px; overflow: hidden; }
-.pane-header { padding: 4px 8px; background: var(--header-bg); border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; }
-.tree-content { flex: 1; overflow: auto; padding: 6px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; }
+.pane-tree { flex: 1 1 50%; min-width: 200px; background: var(--panel); display: flex; flex-direction: column; overflow: hidden; }
+.pane-header { padding: 4px 8px; background: var(--header-bg); border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+.tree-content { flex: 1 1 0%; min-height: 0; overflow-y: auto; padding: 6px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; }
 .tree-node { margin-bottom: 2px; }
 .tree-node > details > summary { cursor: pointer; padding: 2px 4px; border-radius: 3px; list-style: none; display: flex; align-items: center; gap: 4px; }
 .tree-node > details > summary::-webkit-details-marker { display: none; }
@@ -157,8 +159,8 @@ tr.packet-marked { background: var(--c-marked) !important; }
 .tree-field.active-field { background: var(--highlight-hex); color: #000; font-weight: 600; }
 
 /* Lower-Right Pane: Hex Dump */
-.pane-hex { flex: 1; background: var(--panel); display: flex; flex-direction: column; min-width: 250px; overflow: hidden; }
-.hex-content { flex: 1; overflow: auto; padding: 6px 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 18px; white-space: pre; }
+.pane-hex { flex: 1 1 50%; min-width: 200px; background: var(--panel); display: flex; flex-direction: column; overflow: hidden; }
+.hex-content { flex: 1 1 0%; min-height: 0; overflow-y: auto; padding: 6px 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 18px; white-space: pre; }
 .hex-row { display: grid; grid-template-columns: 50px 1fr 140px; gap: 12px; }
 .hex-offset { color: var(--text-muted); }
 .hex-bytes { display: flex; gap: 6px; }
@@ -167,7 +169,7 @@ tr.packet-marked { background: var(--c-marked) !important; }
 .hex-byte.hi, .hex-char.hi { background: var(--highlight-hex); color: #000; font-weight: 700; border: 1px solid var(--highlight-hex-border); }
 
 /* --- Bottom Status Bar --- */
-.statusbar { display: flex; align-items: center; justify-content: space-between; background: var(--header-bg); border-top: 1px solid var(--border); padding: 3px 10px; font-size: 11px; color: var(--text-muted); font-family: var(--font-sans); }
+.statusbar { display: flex; align-items: center; justify-content: space-between; background: var(--header-bg); border-top: 1px solid var(--border); padding: 3px 10px; font-size: 11px; color: var(--text-muted); font-family: var(--font-sans); flex-shrink: 0; }
 .status-left { display: flex; gap: 16px; align-items: center; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22C55E; display: inline-block; }
 .status-dot.capturing { background: #3B82F6; animation: blink 1s infinite; }
@@ -364,10 +366,10 @@ tr.packet-marked { background: var(--c-marked) !important; }
 <!-- Bottom Status Bar -->
 <div class="statusbar">
   <div class="status-left">
-    <span><span id="statusDot" class="status-dot"></span> <span id="statusText">Ready</span></span>
+    <span><span id="statusDot" class="status-dot"></span> <span id="statusText">Ready · Select an interface and click ▶ Start</span></span>
     <span>Packets: <b id="statTotal">0</b></span>
     <span>Displayed: <b id="statDisplayed">0</b> (<span id="statPct">100.0%</span>)</span>
-    <span>Interface: <span id="statIface" class="mono">Wi-Fi</span></span>
+    <span>Interface: <span id="statIface" class="mono">Auto</span></span>
   </div>
   <div>
     <span>Profile: Default · Mini-Shark Wireshark Engine</span>
@@ -555,6 +557,7 @@ tr.packet-marked { background: var(--c-marked) !important; }
     TCP: 'proto-tcp',
     HTTP: 'proto-http',
     DNS: 'proto-dns',
+    MDNS: 'proto-dns',
     UDP: 'proto-udp',
     ICMP: 'proto-icmp',
     ARP: 'proto-arp',
@@ -565,12 +568,22 @@ tr.packet-marked { background: var(--c-marked) !important; }
   // --- Live Capture Control ---
   window.startCapture = function() {
     if (capturing) return;
+    
+    // Close any dangling previous connection
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
+
     capturing = true;
     btnStart.disabled = true;
+    btnStart.setAttribute('disabled', 'true');
     btnStop.disabled = false;
+    btnStop.removeAttribute('disabled');
     btnStart.classList.add('active');
     $('statusDot').classList.add('capturing');
-    $('statusText').textContent = 'Live Capturing ...';
+    $('statusDot').style.background = '#3B82F6';
+    $('statusText').textContent = 'Connecting live capture stream ...';
     
     const iface = $('ifaceSelect').value;
     $('statIface').textContent = iface;
@@ -585,28 +598,45 @@ tr.packet-marked { background: var(--c-marked) !important; }
           if (data.type === 'started') {
             activeSessionId = data.session_id;
             $('statIface').textContent = data.interface || iface;
+            if (data.scapy === false) {
+              $('statusText').textContent = 'Error: Administrator privileges required for Npcap live packet capture.';
+              $('statusDot').style.background = '#EF4444';
+              window.stopCapture();
+            } else {
+              $('statusText').textContent = `Live Capturing on ${data.interface || iface}`;
+              $('statusDot').style.background = '#22C55E';
+            }
+          } else if (data.type === 'error') {
+            $('statusText').textContent = data.message || 'Capture Error';
+            $('statusDot').style.background = '#EF4444';
+            window.stopCapture();
           } else if (data.src_ip || data.protocol) {
             ingestPacket(data);
           }
         } catch (err) {}
       };
       activeEventSource.onerror = () => {
-        if (capturing && !window._simInterval) {
-          startSyntheticLiveGenerator();
+        if (capturing) {
+          window.stopCapture('Capture connection closed. Click ▶ Start to resume.');
+          $('statusDot').style.background = '#EF4444';
         }
       };
     } catch (err) {
-      startSyntheticLiveGenerator();
+      window.stopCapture('Capture failed to initialize. Run as Administrator.');
+      $('statusDot').style.background = '#EF4444';
     }
   };
 
-  window.stopCapture = function() {
+  window.stopCapture = function(statusMsg) {
     capturing = false;
     btnStart.disabled = false;
+    btnStart.removeAttribute('disabled');
     btnStop.disabled = true;
+    btnStop.setAttribute('disabled', 'true');
     btnStart.classList.remove('active');
     $('statusDot').classList.remove('capturing');
-    $('statusText').textContent = 'Capture Stopped';
+    $('statusDot').style.background = '#EAB308';
+    $('statusText').textContent = statusMsg || 'Capture Stopped · Click ▶ Start to resume';
 
     if (activeSessionId) {
       fetch(`/captures/stream/stop?session_id=${encodeURIComponent(activeSessionId)}`).catch(()=>{});
@@ -628,8 +658,11 @@ tr.packet-marked { background: var(--c-marked) !important; }
   };
 
   window.restartCapture = function() {
+    window.stopCapture();
     window.clearPackets();
-    if (!capturing) window.startCapture();
+    setTimeout(() => {
+      window.startCapture();
+    }, 200);
   };
 
   window.clearPackets = function() {
@@ -660,7 +693,7 @@ tr.packet-marked { background: var(--c-marked) !important; }
       }
       p.raw_bytes = bytes;
     } else if (!p.raw_bytes) {
-      p.raw_bytes = synthesizeRawBytes(p);
+      p.raw_bytes = [];
     }
     
     packets.push(p);
@@ -703,18 +736,18 @@ tr.packet-marked { background: var(--c-marked) !important; }
   }
 
   function selectPacket(id) {
-    const p = packets.find(x => x.id === id);
+    const p = packets.find(x => x.id === id || Number(x.id) === Number(id));
     if (!p) return;
     selectedPacket = p;
 
     // Highlight row
     document.querySelectorAll('.packet-table tr.selected').forEach(r => r.classList.remove('selected'));
-    const tr = $(`pkt-${id}`);
+    const tr = $(`pkt-${id}`) || $(`pkt-${p.id}`);
     if (tr) tr.classList.add('selected');
 
     $('treePacketIndex').textContent = `Frame ${p.id}`;
     renderProtocolTree(p);
-    renderHexDump(p.raw_bytes);
+    renderHexDump(p.raw_bytes || []);
   }
 
   // --- Packet Marking (§20) ---
@@ -737,30 +770,259 @@ tr.packet-marked { background: var(--c-marked) !important; }
     }
   };
 
-  // --- Wireshark Hierarchical Protocol Tree (Pane 2) ---
-  function renderProtocolTree(p) {
-    const b = p.raw_bytes || [];
-    const len = b.length;
-    let html = '';
+  function formatMac(bytes) {
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(':');
+  }
 
-    if (p.layers && Array.isArray(p.layers) && p.layers.length > 0) {
-      // 1. Frame Layer
-      const protoPath = p.layer_names ? p.layer_names.join(':') : (p.protocol || 'Ethernet');
+  function decodeWireBytesToTree(p, b, len) {
+    if (!b || b.length < 14) {
+      return `
+        <div class="tree-node">
+          <details open>
+            <summary data-start="0" data-end="${len}">Raw Data (${len} bytes)</summary>
+            <div class="tree-children">
+              <div class="tree-field" data-start="0" data-end="${len}">Payload Length: ${len} bytes</div>
+            </div>
+          </details>
+        </div>
+      `;
+    }
+
+    let html = '';
+    const dstMac = formatMac(b.slice(0, 6));
+    const srcMac = formatMac(b.slice(6, 12));
+    const ethertype = (b[12] << 8) | b[13];
+    const typeHex = '0x' + ethertype.toString(16).padStart(4, '0');
+    const isIp4 = ethertype === 0x0800;
+    const isArp = ethertype === 0x0806;
+    const isIp6 = ethertype === 0x86dd;
+    const typeName = isIp4 ? 'IPv4' : (isArp ? 'ARP' : (isIp6 ? 'IPv6' : 'Unknown'));
+
+    html += `
+      <div class="tree-node">
+        <details open>
+          <summary data-start="0" data-end="14">Ethernet II, Src: ${srcMac}, Dst: ${dstMac}</summary>
+          <div class="tree-children">
+            <div class="tree-field" data-start="0" data-end="6">Destination: ${dstMac}</div>
+            <div class="tree-field" data-start="6" data-end="12">Source: ${srcMac}</div>
+            <div class="tree-field" data-start="12" data-end="14">Type: ${typeName} (${typeHex})</div>
+          </div>
+        </details>
+      </div>
+    `;
+
+    let offset = 14;
+
+    if (isIp4 && len >= 34) {
+      const verIhl = b[14];
+      const version = verIhl >> 4;
+      const ihl = verIhl & 0x0F;
+      const hdrBytes = ihl * 4;
+      const tos = b[15];
+      const totalLen = (b[16] << 8) | b[17];
+      const ident = (b[18] << 8) | b[19];
+      const flagsFrag = (b[20] << 8) | b[21];
+      const flags = (flagsFrag >> 13) & 0x07;
+      const fragOffset = flagsFrag & 0x1FFF;
+      const df = !!(flags & 2);
+      const mf = !!(flags & 1);
+      const ttl = b[22];
+      const proto = b[23];
+      const checksum = (b[24] << 8) | b[25];
+      const srcIp = `${b[26]}.${b[27]}.${b[28]}.${b[29]}`;
+      const dstIp = `${b[30]}.${b[31]}.${b[32]}.${b[33]}`;
+      const protoName = proto === 6 ? 'TCP' : (proto === 17 ? 'UDP' : (proto === 1 ? 'ICMP' : `Proto ${proto}`));
+
       html += `
         <div class="tree-node">
           <details open>
-            <summary data-start="0" data-end="${len}">Frame ${p.id}: ${len} bytes on wire (${len * 8} bits)</summary>
+            <summary data-start="14" data-end="${14 + hdrBytes}">Internet Protocol Version 4, Src: ${srcIp}, Dst: ${dstIp}</summary>
             <div class="tree-children">
-              <div class="tree-field" data-start="0" data-end="${len}">Arrival Time: ${new Date(p.timestamp * 1000).toISOString()}</div>
-              <div class="tree-field" data-start="0" data-end="${len}">Frame Number: ${p.id}</div>
-              <div class="tree-field" data-start="0" data-end="${len}">Frame Length: ${len} bytes (${len * 8} bits)</div>
-              <div class="tree-field" data-start="0" data-end="${len}">Capture Length: ${len} bytes</div>
-              <div class="tree-field" data-start="0" data-end="${len}">Protocols in frame: ${protoPath}</div>
+              <div class="tree-field" data-start="14" data-end="15">0100 .... = Version: 4</div>
+              <div class="tree-field" data-start="14" data-end="15">.... ${(ihl).toString(2).padStart(4, '0')} = Header Length: ${hdrBytes} bytes (${ihl})</div>
+              <div class="tree-field" data-start="15" data-end="16">Differentiated Services Field: 0x${tos.toString(16).padStart(2, '0')} (DSCP: CS0, ECN: Not-ECT)</div>
+              <div class="tree-field" data-start="16" data-end="18">Total Length: ${totalLen}</div>
+              <div class="tree-field" data-start="18" data-end="20">Identification: 0x${ident.toString(16).padStart(4, '0')} (${ident})</div>
+              <div class="tree-field" data-start="20" data-end="22">Flags: 0x${(flags << 1).toString(16).padStart(2, '0')}${df ? ', Don\'t fragment' : ''}${mf ? ', More fragments' : ''}</div>
+              <div class="tree-field" data-start="20" data-end="22">  0... .... = Reserved bit: Not set</div>
+              <div class="tree-field" data-start="20" data-end="22">  .${df ? '1' : '0'}.. .... = Don't fragment: ${df ? 'Set' : 'Not set'}</div>
+              <div class="tree-field" data-start="20" data-end="22">  ..${mf ? '1' : '0'}. .... = More fragments: ${mf ? 'Set' : 'Not set'}</div>
+              <div class="tree-field" data-start="20" data-end="22">Fragment Offset: ${fragOffset}</div>
+              <div class="tree-field" data-start="22" data-end="23">Time to Live: ${ttl}</div>
+              <div class="tree-field" data-start="23" data-end="24">Protocol: ${protoName} (${proto})</div>
+              <div class="tree-field" data-start="24" data-end="26">Header Checksum: 0x${checksum.toString(16).padStart(4, '0')}</div>
+              <div class="tree-field" data-start="26" data-end="30">Source Address: ${srcIp}</div>
+              <div class="tree-field" data-start="30" data-end="34">Destination Address: ${dstIp}</div>
             </div>
           </details>
         </div>
       `;
 
+      offset = 14 + hdrBytes;
+
+      if (proto === 6 && len >= offset + 20) {
+        // TCP
+        const sport = (b[offset] << 8) | b[offset + 1];
+        const dport = (b[offset + 2] << 8) | b[offset + 3];
+        const seq = (b[offset + 4] * 16777216) + (b[offset + 5] << 16) + (b[offset + 6] << 8) + b[offset + 7];
+        const ack = (b[offset + 8] * 16777216) + (b[offset + 9] << 16) + (b[offset + 10] << 8) + b[offset + 11];
+        const tcpHdrLen = (b[offset + 12] >> 4) * 4;
+        const fl = b[offset + 13];
+        const win = (b[offset + 14] << 8) | b[offset + 15];
+        const chk = (b[offset + 16] << 8) | b[offset + 17];
+        const payloadLen = Math.max(0, len - (offset + tcpHdrLen));
+
+        const flagArr = [];
+        if (fl & 0x020) flagArr.push('URG');
+        if (fl & 0x010) flagArr.push('ACK');
+        if (fl & 0x008) flagArr.push('PSH');
+        if (fl & 0x004) flagArr.push('RST');
+        if (fl & 0x002) flagArr.push('SYN');
+        if (fl & 0x001) flagArr.push('FIN');
+        const flagStr = flagArr.join(', ') || 'None';
+
+        html += `
+          <div class="tree-node">
+            <details open>
+              <summary data-start="${offset}" data-end="${offset + tcpHdrLen}">Transmission Control Protocol, Src Port: ${sport}, Dst Port: ${dport}, Seq: ${seq}, Ack: ${ack}, Len: ${payloadLen}</summary>
+              <div class="tree-children">
+                <div class="tree-field" data-start="${offset}" data-end="${offset + 2}">Source Port: ${sport}</div>
+                <div class="tree-field" data-start="${offset + 2}" data-end="${offset + 4}">Destination Port: ${dport}</div>
+                <div class="tree-field" data-start="${offset + 4}" data-end="${offset + 8}">Sequence Number (raw): ${seq}</div>
+                <div class="tree-field" data-start="${offset + 8}" data-end="${offset + 12}">Acknowledgment Number (raw): ${ack}</div>
+                <div class="tree-field" data-start="${offset + 12}" data-end="${offset + 13}">${(tcpHdrLen / 4).toString(2).padStart(4, '0')} .... = Header Length: ${tcpHdrLen} bytes (${tcpHdrLen / 4})</div>
+                <div class="tree-field" data-start="${offset + 13}" data-end="${offset + 14}">Flags: 0x${fl.toString(16).padStart(3, '0')} [${flagStr}]</div>
+                <div class="tree-field" data-start="${offset + 13}" data-end="${offset + 14}">  .... ..${(fl & 0x20) ? '1' : '0'}. .... = Urgent: ${(fl & 0x20) ? 'Set' : 'Not set'}</div>
+                <div class="tree-field" data-start="${offset + 13}" data-end="${offset + 14}">  .... ...${(fl & 0x10) ? '1' : '0'} .... = Acknowledgment: ${(fl & 0x10) ? 'Set' : 'Not set'}</div>
+                <div class="tree-field" data-start="${offset + 13}" data-end="${offset + 14}">  .... .... ${(fl & 0x08) ? '1' : '0'}... = Push: ${(fl & 0x08) ? 'Set' : 'Not set'}</div>
+                <div class="tree-field" data-start="${offset + 13}" data-end="${offset + 14}">  .... .... .${(fl & 0x04) ? '1' : '0'}.. = Reset: ${(fl & 0x04) ? 'Set' : 'Not set'}</div>
+                <div class="tree-field" data-start="${offset + 13}" data-end="${offset + 14}">  .... .... ..${(fl & 0x02) ? '1' : '0'}. = Syn: ${(fl & 0x02) ? 'Set' : 'Not set'}</div>
+                <div class="tree-field" data-start="${offset + 13}" data-end="${offset + 14}">  .... .... ...${(fl & 0x01) ? '1' : '0'} = Fin: ${(fl & 0x01) ? 'Set' : 'Not set'}</div>
+                <div class="tree-field" data-start="${offset + 14}" data-end="${offset + 16}">Window: ${win}</div>
+                <div class="tree-field" data-start="${offset + 16}" data-end="${offset + 18}">Checksum: 0x${chk.toString(16).padStart(4, '0')}</div>
+                <div class="tree-field" data-start="${offset + 18}" data-end="${offset + 20}">Urgent Pointer: 0</div>
+              </div>
+            </details>
+          </div>
+        `;
+
+        offset += tcpHdrLen;
+        if (offset < len) {
+          const payloadBytes = len - offset;
+          html += `
+            <div class="tree-node">
+              <details open>
+                <summary data-start="${offset}" data-end="${len}">TCP payload (${payloadBytes} bytes)</summary>
+                <div class="tree-children">
+                  <div class="tree-field" data-start="${offset}" data-end="${len}">Payload Length: ${payloadBytes} bytes</div>
+                  <div class="tree-field" data-start="${offset}" data-end="${len}">Data: [${payloadBytes} bytes on wire]</div>
+                </div>
+              </details>
+            </div>
+          `;
+        }
+      } else if (proto === 17 && len >= offset + 8) {
+        // UDP
+        const sport = (b[offset] << 8) | b[offset + 1];
+        const dport = (b[offset + 2] << 8) | b[offset + 3];
+        const udpLen = (b[offset + 4] << 8) | b[offset + 5];
+        const chk = (b[offset + 6] << 8) | b[offset + 7];
+        html += `
+          <div class="tree-node">
+            <details open>
+              <summary data-start="${offset}" data-end="${offset + 8}">User Datagram Protocol, Src Port: ${sport}, Dst Port: ${dport}</summary>
+              <div class="tree-children">
+                <div class="tree-field" data-start="${offset}" data-end="${offset + 2}">Source Port: ${sport}</div>
+                <div class="tree-field" data-start="${offset + 2}" data-end="${offset + 4}">Destination Port: ${dport}</div>
+                <div class="tree-field" data-start="${offset + 4}" data-end="${offset + 6}">Length: ${udpLen}</div>
+                <div class="tree-field" data-start="${offset + 6}" data-end="${offset + 8}">Checksum: 0x${chk.toString(16).padStart(4, '0')}</div>
+              </div>
+            </details>
+          </div>
+        `;
+        offset += 8;
+        if (offset < len) {
+          const payloadBytes = len - offset;
+          html += `
+            <div class="tree-node">
+              <details open>
+                <summary data-start="${offset}" data-end="${len}">UDP payload (${payloadBytes} bytes)</summary>
+                <div class="tree-children">
+                  <div class="tree-field" data-start="${offset}" data-end="${len}">Payload Length: ${payloadBytes} bytes</div>
+                </div>
+              </details>
+            </div>
+          `;
+        }
+      }
+    } else if (isArp && len >= 42) {
+      const htype = (b[14] << 8) | b[15];
+      const ptype = (b[16] << 8) | b[17];
+      const op = (b[20] << 8) | b[21];
+      const opStr = op === 1 ? 'request (1)' : 'reply (2)';
+      const sMac = formatMac(b.slice(22, 28));
+      const sIp = `${b[28]}.${b[29]}.${b[30]}.${b[31]}`;
+      const dMac = formatMac(b.slice(32, 38));
+      const dIp = `${b[38]}.${b[39]}.${b[40]}.${b[41]}`;
+      html += `
+        <div class="tree-node">
+          <details open>
+            <summary data-start="14" data-end="42">Address Resolution Protocol (${opStr})</summary>
+            <div class="tree-children">
+              <div class="tree-field" data-start="14" data-end="16">Hardware type: Ethernet (${htype})</div>
+              <div class="tree-field" data-start="16" data-end="18">Protocol type: IPv4 (0x0800)</div>
+              <div class="tree-field" data-start="18" data-end="19">Hardware size: 6</div>
+              <div class="tree-field" data-start="19" data-end="20">Protocol size: 4</div>
+              <div class="tree-field" data-start="20" data-end="22">Opcode: ${opStr}</div>
+              <div class="tree-field" data-start="22" data-end="28">Sender MAC address: ${sMac}</div>
+              <div class="tree-field" data-start="28" data-end="32">Sender IP address: ${sIp}</div>
+              <div class="tree-field" data-start="32" data-end="38">Target MAC address: ${dMac}</div>
+              <div class="tree-field" data-start="38" data-end="42">Target IP address: ${dIp}</div>
+            </div>
+          </details>
+        </div>
+      `;
+    }
+
+    return html;
+  }
+
+  // --- Wireshark Hierarchical Protocol Tree (Pane 2) ---
+  function renderProtocolTree(p) {
+    let b = p.raw_bytes || [];
+    if ((!b || b.length === 0) && p.raw_hex) {
+      b = [];
+      for (let i = 0; i < p.raw_hex.length; i += 2) {
+        b.push(parseInt(p.raw_hex.substr(i, 2), 16));
+      }
+      p.raw_bytes = b;
+    }
+    const len = b.length || p.length || 0;
+    let html = '';
+
+    const hasLayers = p.layers && Array.isArray(p.layers) && p.layers.length > 0;
+    const protoPath = p.layer_names ? p.layer_names.join(':').toLowerCase() : (p.protocol ? `eth:ethertype:ip:${p.protocol.toLowerCase()}` : 'eth:ethertype:ip');
+    const arrivalDate = p.timestamp ? new Date(p.timestamp * 1000).toISOString() : new Date().toISOString();
+
+    html += `
+      <div class="tree-node">
+        <details open>
+          <summary data-start="0" data-end="${len}">Frame ${p.id}: ${len} bytes on wire (${len * 8} bits), ${len} bytes captured (${len * 8} bits)</summary>
+          <div class="tree-children">
+            <div class="tree-field" data-start="0" data-end="${len}">Interface id: 0 (${$('statIface').textContent || 'Wi-Fi'})</div>
+            <div class="tree-field" data-start="0" data-end="${len}">Arrival Time: ${arrivalDate}</div>
+            <div class="tree-field" data-start="0" data-end="${len}">Epoch Time: ${p.timestamp ? p.timestamp.toFixed(6) : '0.000000'} seconds</div>
+            <div class="tree-field" data-start="0" data-end="${len}">Frame Number: ${p.id}</div>
+            <div class="tree-field" data-start="0" data-end="${len}">Frame Length: ${len} bytes (${len * 8} bits)</div>
+            <div class="tree-field" data-start="0" data-end="${len}">Capture Length: ${len} bytes (${len * 8} bits)</div>
+            <div class="tree-field" data-start="0" data-end="${len}">Protocols in frame: ${escapeHtml(protoPath)}</div>
+            ${p.fingerprint ? `<div class="tree-field" data-start="0" data-end="${len}">Flow Fingerprint: ${p.fingerprint}</div>` : ''}
+          </div>
+        </details>
+      </div>
+    `;
+
+    if (hasLayers) {
       let offset = 0;
       for (const layer of p.layers) {
         const lname = layer.name || 'Unknown';
@@ -771,102 +1033,176 @@ tr.packet-marked { background: var(--c-marked) !important; }
         const fieldLines = [];
 
         if (lname === 'Ethernet') {
-          layerStart = 0;
-          layerEnd = Math.min(14, len);
+          layerStart = offset;
+          layerEnd = Math.min(offset + 14, len);
           offset = layerEnd;
-          const srcMac = f.src || '00:1a:2b:3c:4d:5e';
-          const dstMac = f.dst || '00:5f:4e:3d:2c:1b';
-          const typeHex = '0x' + (f.type || 0x0800).toString(16).padStart(4, '0');
+          const srcMac = f.src || (b.length >= 12 ? formatMac(b.slice(6, 12)) : '00:00:00:00:00:00');
+          const dstMac = f.dst || (b.length >= 6 ? formatMac(b.slice(0, 6)) : 'ff:ff:ff:ff:ff:ff');
+          const ethertype = f.ethertype !== undefined ? f.ethertype : (b.length >= 14 ? ((b[12] << 8) | b[13]) : 0x0800);
+          const typeHex = '0x' + ethertype.toString(16).padStart(4, '0');
+          const typeName = ethertype === 0x0800 ? 'IPv4' : (ethertype === 0x0806 ? 'ARP' : (ethertype === 0x86dd ? 'IPv6' : 'Unknown'));
           layerSummary = `Ethernet II, Src: ${srcMac}, Dst: ${dstMac}`;
-          fieldLines.push({ text: `Destination: ${dstMac}`, start: 0, end: 6 });
-          fieldLines.push({ text: `Source: ${srcMac}`, start: 6, end: 12 });
-          fieldLines.push({ text: `Type: ${typeHex}`, start: 12, end: 14 });
+          fieldLines.push({ text: `Destination: ${dstMac}`, start: layerStart, end: layerStart + 6 });
+          fieldLines.push({ text: `Source: ${srcMac}`, start: layerStart + 6, end: layerStart + 12 });
+          fieldLines.push({ text: `Type: ${typeName} (${typeHex})`, start: layerStart + 12, end: layerStart + 14 });
         } else if (lname === 'IPv4') {
-          layerStart = 14;
-          const ihl = f.ihl || 5;
-          layerEnd = Math.min(14 + ihl * 4, len);
+          layerStart = offset;
+          const hdrBytes = f.hdr_len || (f.ihl ? f.ihl * 4 : 20);
+          const ihl = Math.floor(hdrBytes / 4);
+          layerEnd = Math.min(offset + hdrBytes, len);
           offset = layerEnd;
-          layerSummary = `Internet Protocol Version 4, Src: ${f.src || p.src_ip}, Dst: ${f.dst || p.dst_ip}`;
-          fieldLines.push({ text: `Version: ${f.version || 4}`, start: 14, end: 15 });
-          fieldLines.push({ text: `Header Length: ${ihl * 4} bytes (${ihl})`, start: 14, end: 15 });
-          fieldLines.push({ text: `Differentiated Services Field: 0x${(f.tos || 0).toString(16).padStart(2,'0')}`, start: 15, end: 16 });
-          fieldLines.push({ text: `Total Length: ${f.length || (len - 14)}`, start: 16, end: 18 });
-          fieldLines.push({ text: `Identification: 0x${(f.id || 0).toString(16).padStart(4,'0')}`, start: 18, end: 20 });
-          fieldLines.push({ text: `Flags: 0x${(f.flags || 0x4000).toString(16).padStart(4,'0')}`, start: 20, end: 22 });
-          fieldLines.push({ text: `Time to Live: ${f.ttl || 64}`, start: 22, end: 23 });
-          fieldLines.push({ text: `Protocol: ${f.proto || p.protocol}`, start: 23, end: 24 });
-          fieldLines.push({ text: `Header Checksum: 0x${(f.checksum || 0).toString(16).padStart(4,'0')}`, start: 24, end: 26 });
-          fieldLines.push({ text: `Source Address: ${f.src || p.src_ip}`, start: 26, end: 30 });
-          fieldLines.push({ text: `Destination Address: ${f.dst || p.dst_ip}`, start: 30, end: 34 });
+          const srcIp = f.src || p.src_ip || '0.0.0.0';
+          const dstIp = f.dst || p.dst_ip || '0.0.0.0';
+          const totalLen = f.total_length || f.total_len || f.length || (len - layerStart);
+          const tos = f.tos || 0;
+          const ident = f.id || 0;
+          const flagsFrag = f.flags_frag !== undefined ? f.flags_frag : (f.flags || 0);
+          const flagsVal = (flagsFrag >> 13) & 0x07;
+          const fragOffset = flagsFrag & 0x1FFF;
+          const df = !!(flagsVal & 2);
+          const mf = !!(flagsVal & 1);
+          const ttl = f.ttl !== undefined ? f.ttl : 64;
+          const protoNum = f.protocol !== undefined ? f.protocol : (p.protocol === 'TCP' ? 6 : (p.protocol === 'UDP' ? 17 : 1));
+          const protoName = p.protocol || (protoNum === 6 ? 'TCP' : (protoNum === 17 ? 'UDP' : 'ICMP'));
+          const checksum = f.checksum || 0;
+
+          layerSummary = `Internet Protocol Version 4, Src: ${srcIp}, Dst: ${dstIp}`;
+          fieldLines.push({ text: `0100 .... = Version: 4`, start: layerStart, end: layerStart + 1 });
+          fieldLines.push({ text: `.... ${(ihl).toString(2).padStart(4, '0')} = Header Length: ${hdrBytes} bytes (${ihl})`, start: layerStart, end: layerStart + 1 });
+          fieldLines.push({ text: `Differentiated Services Field: 0x${tos.toString(16).padStart(2, '0')} (DSCP: CS0, ECN: Not-ECT)`, start: layerStart + 1, end: layerStart + 2 });
+          fieldLines.push({ text: `Total Length: ${totalLen}`, start: layerStart + 2, end: layerStart + 4 });
+          fieldLines.push({ text: `Identification: 0x${ident.toString(16).padStart(4, '0')} (${ident})`, start: layerStart + 4, end: layerStart + 6 });
+          fieldLines.push({ text: `Flags: 0x${(flagsVal << 1).toString(16).padStart(2, '0')}${df ? ', Don\'t fragment' : ''}${mf ? ', More fragments' : ''}`, start: layerStart + 6, end: layerStart + 8 });
+          fieldLines.push({ text: `  0... .... = Reserved bit: Not set`, start: layerStart + 6, end: layerStart + 8 });
+          fieldLines.push({ text: `  .${df ? '1' : '0'}.. .... = Don't fragment: ${df ? 'Set' : 'Not set'}`, start: layerStart + 6, end: layerStart + 8 });
+          fieldLines.push({ text: `  ..${mf ? '1' : '0'}. .... = More fragments: ${mf ? 'Set' : 'Not set'}`, start: layerStart + 6, end: layerStart + 8 });
+          fieldLines.push({ text: `Fragment Offset: ${fragOffset}`, start: layerStart + 6, end: layerStart + 8 });
+          fieldLines.push({ text: `Time to Live: ${ttl}`, start: layerStart + 8, end: layerStart + 9 });
+          fieldLines.push({ text: `Protocol: ${protoName} (${protoNum})`, start: layerStart + 9, end: layerStart + 10 });
+          fieldLines.push({ text: `Header Checksum: 0x${checksum.toString(16).padStart(4, '0')}`, start: layerStart + 10, end: layerStart + 12 });
+          fieldLines.push({ text: `Source Address: ${srcIp}`, start: layerStart + 12, end: layerStart + 16 });
+          fieldLines.push({ text: `Destination Address: ${dstIp}`, start: layerStart + 16, end: layerStart + 20 });
         } else if (lname === 'IPv6') {
-          layerStart = 14;
-          layerEnd = Math.min(14 + 40, len);
+          layerStart = offset;
+          layerEnd = Math.min(offset + 40, len);
           offset = layerEnd;
-          layerSummary = `Internet Protocol Version 6, Src: ${f.src || p.src_ip}, Dst: ${f.dst || p.dst_ip}`;
-          fieldLines.push({ text: `Source Address: ${f.src || p.src_ip}`, start: 22, end: 38 });
-          fieldLines.push({ text: `Destination Address: ${f.dst || p.dst_ip}`, start: 38, end: 54 });
+          const srcIp = f.src || p.src_ip || '::';
+          const dstIp = f.dst || p.dst_ip || '::';
+          layerSummary = `Internet Protocol Version 6, Src: ${srcIp}, Dst: ${dstIp}`;
+          fieldLines.push({ text: `0110 .... = Version: 6`, start: layerStart, end: layerStart + 1 });
+          fieldLines.push({ text: `Payload Length: ${f.payload_length || (len - layerStart - 40)}`, start: layerStart + 4, end: layerStart + 6 });
+          fieldLines.push({ text: `Next Header: ${f.next_header || 6}`, start: layerStart + 6, end: layerStart + 7 });
+          fieldLines.push({ text: `Hop Limit: ${f.hop_limit || 64}`, start: layerStart + 7, end: layerStart + 8 });
+          fieldLines.push({ text: `Source Address: ${srcIp}`, start: layerStart + 8, end: layerStart + 24 });
+          fieldLines.push({ text: `Destination Address: ${dstIp}`, start: layerStart + 24, end: layerStart + 40 });
         } else if (lname === 'TCP') {
           layerStart = offset;
-          const hdrLen = (f.offset || 5) * 4;
-          layerEnd = Math.min(offset + hdrLen, len);
+          const hdrBytes = f.hdr_len || (f.offset ? f.offset * 4 : 20);
+          layerEnd = Math.min(offset + hdrBytes, len);
           offset = layerEnd;
-          layerSummary = `Transmission Control Protocol, Src Port: ${f.src_port || p.src_port}, Dst Port: ${f.dst_port || p.dst_port}, Seq: ${f.seq || 0}, Ack: ${f.ack || 0}`;
-          fieldLines.push({ text: `Source Port: ${f.src_port || p.src_port}`, start: layerStart, end: layerStart + 2 });
-          fieldLines.push({ text: `Destination Port: ${f.dst_port || p.dst_port}`, start: layerStart + 2, end: layerStart + 4 });
-          fieldLines.push({ text: `Sequence Number: ${f.seq || 0}`, start: layerStart + 4, end: layerStart + 8 });
-          fieldLines.push({ text: `Acknowledgment Number: ${f.ack || 0}`, start: layerStart + 8, end: layerStart + 12 });
-          fieldLines.push({ text: `Header Length: ${hdrLen} bytes`, start: layerStart + 12, end: layerStart + 13 });
-          fieldLines.push({ text: `Flags: 0x${(f.flags || 0).toString(16).padStart(3, '0')}`, start: layerStart + 13, end: layerStart + 14 });
-          fieldLines.push({ text: `Window: ${f.window || 64240}`, start: layerStart + 14, end: layerStart + 16 });
-          fieldLines.push({ text: `Checksum: 0x${(f.checksum || 0).toString(16).padStart(4, '0')}`, start: layerStart + 16, end: layerStart + 18 });
+          const sport = f.src_port || p.src_port || 0;
+          const dport = f.dst_port || p.dst_port || 0;
+          const seq = f.seq !== undefined ? f.seq : (p.tcp_seq !== undefined ? p.tcp_seq : 0);
+          const ack = f.ack !== undefined ? f.ack : 0;
+          const fl = f.flags !== undefined ? f.flags : (p.tcp_flags || 0);
+          const win = f.window !== undefined ? f.window : 64240;
+          const chk = f.checksum || 0;
+          const payloadLen = Math.max(0, len - offset);
+
+          const flagArr = [];
+          if (fl & 0x020) flagArr.push('URG');
+          if (fl & 0x010) flagArr.push('ACK');
+          if (fl & 0x008) flagArr.push('PSH');
+          if (fl & 0x004) flagArr.push('RST');
+          if (fl & 0x002) flagArr.push('SYN');
+          if (fl & 0x001) flagArr.push('FIN');
+          const flagStr = flagArr.join(', ') || 'None';
+
+          layerSummary = `Transmission Control Protocol, Src Port: ${sport}, Dst Port: ${dport}, Seq: ${seq}, Ack: ${ack}, Len: ${payloadLen}`;
+          fieldLines.push({ text: `Source Port: ${sport}`, start: layerStart, end: layerStart + 2 });
+          fieldLines.push({ text: `Destination Port: ${dport}`, start: layerStart + 2, end: layerStart + 4 });
+          fieldLines.push({ text: `Sequence Number (raw): ${seq}`, start: layerStart + 4, end: layerStart + 8 });
+          fieldLines.push({ text: `Acknowledgment Number (raw): ${ack}`, start: layerStart + 8, end: layerStart + 12 });
+          fieldLines.push({ text: `${(hdrBytes / 4).toString(2).padStart(4, '0')} .... = Header Length: ${hdrBytes} bytes (${hdrBytes / 4})`, start: layerStart + 12, end: layerStart + 13 });
+          fieldLines.push({ text: `Flags: 0x${fl.toString(16).padStart(3, '0')} [${flagStr}]`, start: layerStart + 13, end: layerStart + 14 });
+          fieldLines.push({ text: `  .... ..${(fl & 0x20) ? '1' : '0'}. .... = Urgent: ${(fl & 0x20) ? 'Set' : 'Not set'}`, start: layerStart + 13, end: layerStart + 14 });
+          fieldLines.push({ text: `  .... ...${(fl & 0x10) ? '1' : '0'} .... = Acknowledgment: ${(fl & 0x10) ? 'Set' : 'Not set'}`, start: layerStart + 13, end: layerStart + 14 });
+          fieldLines.push({ text: `  .... .... ${(fl & 0x08) ? '1' : '0'}... = Push: ${(fl & 0x08) ? 'Set' : 'Not set'}`, start: layerStart + 13, end: layerStart + 14 });
+          fieldLines.push({ text: `  .... .... .${(fl & 0x04) ? '1' : '0'}.. = Reset: ${(fl & 0x04) ? 'Set' : 'Not set'}`, start: layerStart + 13, end: layerStart + 14 });
+          fieldLines.push({ text: `  .... .... ..${(fl & 0x02) ? '1' : '0'}. = Syn: ${(fl & 0x02) ? 'Set' : 'Not set'}`, start: layerStart + 13, end: layerStart + 14 });
+          fieldLines.push({ text: `  .... .... ...${(fl & 0x01) ? '1' : '0'} = Fin: ${(fl & 0x01) ? 'Set' : 'Not set'}`, start: layerStart + 13, end: layerStart + 14 });
+          fieldLines.push({ text: `Window: ${win}`, start: layerStart + 14, end: layerStart + 16 });
+          fieldLines.push({ text: `Checksum: 0x${chk.toString(16).padStart(4, '0')}`, start: layerStart + 16, end: layerStart + 18 });
+          fieldLines.push({ text: `Urgent Pointer: 0`, start: layerStart + 18, end: layerStart + 20 });
         } else if (lname === 'UDP') {
           layerStart = offset;
           layerEnd = Math.min(offset + 8, len);
           offset = layerEnd;
-          layerSummary = `User Datagram Protocol, Src Port: ${f.src_port || p.src_port}, Dst Port: ${f.dst_port || p.dst_port}`;
-          fieldLines.push({ text: `Source Port: ${f.src_port || p.src_port}`, start: layerStart, end: layerStart + 2 });
-          fieldLines.push({ text: `Destination Port: ${f.dst_port || p.dst_port}`, start: layerStart + 2, end: layerStart + 4 });
-          fieldLines.push({ text: `Length: ${f.length || (len - layerStart)}`, start: layerStart + 4, end: layerStart + 6 });
-          fieldLines.push({ text: `Checksum: 0x${(f.checksum || 0).toString(16).padStart(4, '0')}`, start: layerStart + 6, end: layerStart + 8 });
+          const sport = f.src_port || p.src_port || 0;
+          const dport = f.dst_port || p.dst_port || 0;
+          const udpLen = f.length || (len - layerStart);
+          const chk = f.checksum || 0;
+          layerSummary = `User Datagram Protocol, Src Port: ${sport}, Dst Port: ${dport}`;
+          fieldLines.push({ text: `Source Port: ${sport}`, start: layerStart, end: layerStart + 2 });
+          fieldLines.push({ text: `Destination Port: ${dport}`, start: layerStart + 2, end: layerStart + 4 });
+          fieldLines.push({ text: `Length: ${udpLen}`, start: layerStart + 4, end: layerStart + 6 });
+          fieldLines.push({ text: `Checksum: 0x${chk.toString(16).padStart(4, '0')}`, start: layerStart + 6, end: layerStart + 8 });
         } else if (lname === 'ICMP') {
           layerStart = offset;
           layerEnd = Math.min(offset + 8, len);
           offset = layerEnd;
-          layerSummary = `Internet Control Message Protocol, Type: ${f.type}, Code: ${f.code}`;
-          fieldLines.push({ text: `Type: ${f.type}`, start: layerStart, end: layerStart + 1 });
-          fieldLines.push({ text: `Code: ${f.code}`, start: layerStart + 1, end: layerStart + 2 });
+          const typeName = f.type === 0 ? 'Echo (ping) reply' : (f.type === 8 ? 'Echo (ping) request' : `Type ${f.type}`);
+          layerSummary = `Internet Control Message Protocol (${typeName})`;
+          fieldLines.push({ text: `Type: ${f.type} (${typeName})`, start: layerStart, end: layerStart + 1 });
+          fieldLines.push({ text: `Code: ${f.code || 0}`, start: layerStart + 1, end: layerStart + 2 });
           fieldLines.push({ text: `Checksum: 0x${(f.checksum || 0).toString(16).padStart(4, '0')}`, start: layerStart + 2, end: layerStart + 4 });
-          fieldLines.push({ text: `Identifier: 0x${(f.id || 0).toString(16).padStart(4, '0')}`, start: layerStart + 4, end: layerStart + 6 });
-          fieldLines.push({ text: `Sequence Number: ${f.seq || 0}`, start: layerStart + 6, end: layerStart + 8 });
+          if (f.id !== undefined) fieldLines.push({ text: `Identifier: 0x${f.id.toString(16).padStart(4, '0')} (${f.id})`, start: layerStart + 4, end: layerStart + 6 });
+          if (f.seq !== undefined) fieldLines.push({ text: `Sequence Number: ${f.seq}`, start: layerStart + 6, end: layerStart + 8 });
         } else if (lname === 'ARP') {
-          layerStart = 14;
-          layerEnd = Math.min(42, len);
+          layerStart = offset;
+          layerEnd = Math.min(offset + 28, len);
           offset = layerEnd;
-          layerSummary = `Address Resolution Protocol (${f.opcode === 1 ? 'request' : 'reply'})`;
-          fieldLines.push({ text: `Hardware type: Ethernet (${f.hw_type || 1})`, start: 14, end: 16 });
-          fieldLines.push({ text: `Protocol type: IPv4 (0x0800)`, start: 16, end: 18 });
-          fieldLines.push({ text: `Opcode: ${f.opcode === 1 ? 'request (1)' : 'reply (2)'}`, start: 20, end: 22 });
-          fieldLines.push({ text: `Sender MAC address: ${f.src_mac || '00:1a:2b:3c:4d:5e'}`, start: 22, end: 28 });
-          fieldLines.push({ text: `Sender IP address: ${f.src_ip || p.src_ip}`, start: 28, end: 32 });
-          fieldLines.push({ text: `Target MAC address: ${f.dst_mac || '00:00:00:00:00:00'}`, start: 32, end: 38 });
-          fieldLines.push({ text: `Target IP address: ${f.dst_ip || p.dst_ip}`, start: 38, end: 42 });
+          const opStr = f.opcode === 1 || f.op === 1 ? 'request (1)' : 'reply (2)';
+          layerSummary = `Address Resolution Protocol (${opStr})`;
+          fieldLines.push({ text: `Hardware type: Ethernet (${f.hardware_type || f.hw_type || 1})`, start: layerStart, end: layerStart + 2 });
+          fieldLines.push({ text: `Protocol type: IPv4 (0x0800)`, start: layerStart + 2, end: layerStart + 4 });
+          fieldLines.push({ text: `Hardware size: 6`, start: layerStart + 4, end: layerStart + 5 });
+          fieldLines.push({ text: `Protocol size: 4`, start: layerStart + 5, end: layerStart + 6 });
+          fieldLines.push({ text: `Opcode: ${opStr}`, start: layerStart + 6, end: layerStart + 8 });
+          fieldLines.push({ text: `Sender MAC address: ${f.src_mac || f.sha || '00:00:00:00:00:00'}`, start: layerStart + 8, end: layerStart + 14 });
+          fieldLines.push({ text: `Sender IP address: ${f.src_ip || f.spa || p.src_ip || '0.0.0.0'}`, start: layerStart + 14, end: layerStart + 18 });
+          fieldLines.push({ text: `Target MAC address: ${f.dst_mac || f.tha || '00:00:00:00:00:00'}`, start: layerStart + 18, end: layerStart + 24 });
+          fieldLines.push({ text: `Target IP address: ${f.dst_ip || f.tpa || p.dst_ip || '0.0.0.0'}`, start: layerStart + 24, end: layerStart + 28 });
         } else if (lname === 'DNS') {
           layerStart = offset;
           layerEnd = len;
-          layerSummary = `Domain Name System (${f.response ? 'response' : 'query'})`;
-          fieldLines.push({ text: `Transaction ID: 0x${(f.tx_id || f.id || 0x1a2b).toString(16).padStart(4, '0')}`, start: layerStart, end: layerStart + 2 });
-          fieldLines.push({ text: `Flags: 0x${(f.flags || 0x0100).toString(16).padStart(4, '0')}`, start: layerStart + 2, end: layerStart + 4 });
+          offset = layerEnd;
+          const isResp = !!f.response;
+          layerSummary = `Domain Name System (${isResp ? 'response' : 'query'})`;
+          fieldLines.push({ text: `Transaction ID: 0x${(f.tx_id || f.id || 0).toString(16).padStart(4, '0')}`, start: layerStart, end: layerStart + 2 });
+          fieldLines.push({ text: `Flags: 0x${(f.flags || 0).toString(16).padStart(4, '0')} (${isResp ? 'Standard query response' : 'Standard query'})`, start: layerStart + 2, end: layerStart + 4 });
           if (Array.isArray(f.questions) && f.questions.length > 0) {
+            fieldLines.push({ text: `Questions: ${f.questions.length}`, start: layerStart + 4, end: layerStart + 6 });
             for (const q of f.questions) {
-              fieldLines.push({ text: `Query: ${q.name || 'unknown'} (type ${q.type || 1})`, start: layerStart + 12, end: layerEnd });
+              fieldLines.push({ text: `  Query: ${q.name || 'unknown'} (Type ${q.type || 1}, Class IN)`, start: layerStart + 12, end: layerEnd });
             }
           }
           if (p.dns_entropy !== undefined) {
-            fieldLines.push({ text: `Shannon Entropy: ${p.dns_entropy} bits ${p.dns_exfil_suspect ? '[SUSPICIOUS EXFILTRATION]' : '[Normal]'}`, start: layerStart, end: layerEnd });
+            fieldLines.push({ text: `Shannon Entropy: ${p.dns_entropy} bits ${p.dns_exfil_suspect ? '[⚠️ SUSPICIOUS EXFILTRATION]' : '[Normal]'}`, start: layerStart, end: layerEnd });
           }
+        } else if (lname === 'TLS') {
+          layerStart = offset;
+          layerEnd = len;
+          offset = layerEnd;
+          layerSummary = `Transport Layer Security (${f.version || 'TLS'}, ${f.content_type || 'Encrypted Application Data'})`;
+          if (f.content_type) fieldLines.push({ text: `Content Type: ${f.content_type}`, start: layerStart, end: layerStart + 1 });
+          if (f.version) fieldLines.push({ text: `Version: ${f.version}`, start: layerStart + 1, end: layerStart + 3 });
+          if (f.length) fieldLines.push({ text: `Length: ${f.length}`, start: layerStart + 3, end: layerStart + 5 });
+          if (f.handshake_type) fieldLines.push({ text: `Handshake Message: ${f.handshake_type}`, start: layerStart + 5, end: layerEnd });
         } else if (lname === 'HTTP') {
           layerStart = offset;
           layerEnd = len;
+          offset = layerEnd;
           layerSummary = `Hypertext Transfer Protocol (${f.start_line || 'HTTP Stream'})`;
           if (f.start_line) fieldLines.push({ text: `Request/Status: ${f.start_line}`, start: layerStart, end: layerEnd });
           if (f.headers) {
@@ -874,26 +1210,28 @@ tr.packet-marked { background: var(--c-marked) !important; }
               fieldLines.push({ text: `${k}: ${v}`, start: layerStart, end: layerEnd });
             }
           }
-        } else if (lname === 'TLS') {
-          layerStart = offset;
-          layerEnd = len;
-          layerSummary = `Transport Layer Security (${f.version || 'TLS'}, ${f.content_type || 'Record'})`;
-          if (f.content_type) fieldLines.push({ text: `Content Type: ${f.content_type}`, start: layerStart, end: layerStart + 1 });
-          if (f.version) fieldLines.push({ text: `Version: ${f.version}`, start: layerStart + 1, end: layerStart + 3 });
-          if (f.length) fieldLines.push({ text: `Length: ${f.length}`, start: layerStart + 3, end: layerStart + 5 });
-          if (f.handshake_type) fieldLines.push({ text: `Handshake Message: ${f.handshake_type}`, start: layerStart + 5, end: layerEnd });
         } else if (lname === 'DHCP') {
           layerStart = offset;
           layerEnd = len;
-          layerSummary = `Bootstrap Protocol / Dynamic Host Configuration Protocol (${f.message_type || 'DHCP'})`;
+          offset = layerEnd;
+          layerSummary = `Dynamic Host Configuration Protocol (${f.message_type || 'DHCP'})`;
           fieldLines.push({ text: `Message Type: ${f.message_type || 'BOOTP'} (${f.op || 'Request'})`, start: layerStart, end: layerStart + 4 });
           fieldLines.push({ text: `Transaction ID: ${f.xid || '0x00000000'}`, start: layerStart + 4, end: layerStart + 8 });
           fieldLines.push({ text: `Client MAC: ${f.client_mac || '00:00:00:00:00:00'}`, start: layerStart + 28, end: layerStart + 34 });
           if (f.yiaddr && f.yiaddr !== '0.0.0.0') fieldLines.push({ text: `Your (client) IP: ${f.yiaddr}`, start: layerStart + 16, end: layerStart + 20 });
           if (f.siaddr && f.siaddr !== '0.0.0.0') fieldLines.push({ text: `Server IP: ${f.siaddr}`, start: layerStart + 20, end: layerStart + 24 });
+        } else if (lname === 'Payload') {
+          layerStart = offset;
+          layerEnd = len;
+          offset = layerEnd;
+          const payloadBytes = layerEnd - layerStart;
+          layerSummary = `Data (${payloadBytes} bytes)`;
+          fieldLines.push({ text: `Data: [${payloadBytes} bytes]`, start: layerStart, end: layerEnd });
+          fieldLines.push({ text: `[Length: ${payloadBytes}]`, start: layerStart, end: layerEnd });
         } else {
           layerStart = offset;
           layerEnd = len;
+          offset = layerEnd;
           layerSummary = `${lname} Protocol`;
           for (const [k, v] of Object.entries(f)) {
             fieldLines.push({ text: `${k}: ${JSON.stringify(v)}`, start: layerStart, end: layerEnd });
@@ -911,73 +1249,23 @@ tr.packet-marked { background: var(--c-marked) !important; }
           </div>
         `;
       }
-    } else {
-      // Fallback layered tree
-      html += `
-        <div class="tree-node">
-          <details open>
-            <summary data-start="0" data-end="${len}">Frame ${p.id}: ${len} bytes on wire (${len * 8} bits)</summary>
-            <div class="tree-children">
-              <div class="tree-field" data-start="0" data-end="${len}">Arrival Time: ${new Date(p.timestamp * 1000).toISOString()}</div>
-              <div class="tree-field" data-start="0" data-end="${len}">Frame Number: ${p.id}</div>
-              <div class="tree-field" data-start="0" data-end="${len}">Frame Length: ${len} bytes (${len * 8} bits)</div>
-              <div class="tree-field" data-start="0" data-end="${len}">Capture Length: ${len} bytes</div>
-            </div>
-          </details>
-        </div>
-      `;
 
-      const srcMac = '00:1a:2b:3c:4d:' + (p.id % 255).toString(16).padStart(2,'0');
-      const dstMac = '00:5f:4e:3d:2c:1b';
-      html += `
-        <div class="tree-node">
-          <details open>
-            <summary data-start="0" data-end="14">Ethernet II, Src: ${srcMac}, Dst: ${dstMac}</summary>
-            <div class="tree-children">
-              <div class="tree-field" data-start="0" data-end="6">Destination: ${dstMac}</div>
-              <div class="tree-field" data-start="6" data-end="12">Source: ${srcMac}</div>
-              <div class="tree-field" data-start="12" data-end="14">Type: IPv4 (0x0800)</div>
-            </div>
-          </details>
-        </div>
-      `;
-
-      if (p.protocol === 'ARP') {
+      if (offset < len) {
+        const remainingBytes = len - offset;
         html += `
           <div class="tree-node">
             <details open>
-              <summary data-start="14" data-end="42">Address Resolution Protocol (request)</summary>
+              <summary data-start="${offset}" data-end="${len}">TCP/UDP payload (${remainingBytes} bytes)</summary>
               <div class="tree-children">
-                <div class="tree-field" data-start="14" data-end="16">Hardware type: Ethernet (1)</div>
-                <div class="tree-field" data-start="16" data-end="18">Protocol type: IPv4 (0x0800)</div>
-                <div class="tree-field" data-start="20" data-end="22">Opcode: request (1)</div>
-                <div class="tree-field" data-start="22" data-end="28">Sender MAC address: ${srcMac}</div>
-                <div class="tree-field" data-start="28" data-end="32">Sender IP address: ${p.src_ip || '192.168.1.15'}</div>
-                <div class="tree-field" data-start="38" data-end="42">Target IP address: ${p.dst_ip || '192.168.1.1'}</div>
-              </div>
-            </details>
-          </div>
-        `;
-      } else {
-        const srcIp = p.src_ip || '192.168.1.15';
-        const dstIp = p.dst_ip || '142.250.190.46';
-        html += `
-          <div class="tree-node">
-            <details open>
-              <summary data-start="14" data-end="34">Internet Protocol Version 4, Src: ${srcIp}, Dst: ${dstIp}</summary>
-              <div class="tree-children">
-                <div class="tree-field" data-start="14" data-end="15">0100 .... = Version: 4</div>
-                <div class="tree-field" data-start="14" data-end="15">.... 0101 = Header Length: 20 bytes (5)</div>
-                <div class="tree-field" data-start="16" data-end="18">Total Length: ${len - 14}</div>
-                <div class="tree-field" data-start="22" data-end="23">Time to Live: 64</div>
-                <div class="tree-field" data-start="23" data-end="24">Protocol: ${p.protocol}</div>
-                <div class="tree-field" data-start="26" data-end="30">Source Address: ${srcIp}</div>
-                <div class="tree-field" data-start="30" data-end="34">Destination Address: ${dstIp}</div>
+                <div class="tree-field" data-start="${offset}" data-end="${len}">Payload Length: ${remainingBytes} bytes</div>
+                <div class="tree-field" data-start="${offset}" data-end="${len}">Data: [${remainingBytes} bytes on wire]</div>
               </div>
             </details>
           </div>
         `;
       }
+    } else {
+      html += decodeWireBytesToTree(p, b, len);
     }
 
     treeContent.innerHTML = html;
@@ -1001,7 +1289,20 @@ tr.packet-marked { background: var(--c-marked) !important; }
 
   // --- Wireshark Synchronized Hex & ASCII Dump (Pane 3) ---
   function renderHexDump(bytes) {
+    bytes = bytes || (selectedPacket && selectedPacket.raw_bytes) || [];
+    if ((!bytes || bytes.length === 0) && selectedPacket && selectedPacket.raw_hex) {
+      bytes = [];
+      for (let i = 0; i < selectedPacket.raw_hex.length; i += 2) {
+        bytes.push(parseInt(selectedPacket.raw_hex.substr(i, 2), 16));
+      }
+      if (selectedPacket) selectedPacket.raw_bytes = bytes;
+    }
+    bytes = bytes || [];
     $('hexByteLength').textContent = `${bytes.length} bytes`;
+    if (bytes.length === 0) {
+      hexContent.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center">No raw bytes available for this frame.</div>';
+      return;
+    }
     let html = '';
 
     for (let i = 0; i < bytes.length; i += 16) {
@@ -1197,8 +1498,9 @@ tr.packet-marked { background: var(--c-marked) !important; }
     if (f === 'tcp') return proto === 'tcp' || proto === 'http' || proto === 'tls';
     if (f === 'udp') return proto === 'udp' || proto === 'dns' || proto === 'dhcp';
     if (f === 'http') return proto === 'http';
-    if (f === 'dns') return proto === 'dns';
-    if (f === 'icmp') return proto === 'icmp';
+    if (f === 'dns') return proto === 'dns' || proto === 'mdns';
+    if (f === 'icmp') return proto === 'icmp' || proto === 'icmpv6';
+    if (f === 'icmpv6') return proto === 'icmpv6';
     if (f === 'arp') return proto === 'arp';
     if (f === 'tls') return proto === 'tls';
     if (f === 'dhcp') return proto === 'dhcp';
@@ -1586,32 +1888,12 @@ tr.packet-marked { background: var(--c-marked) !important; }
       });
   };
 
-  // --- Synthetic Traffic Generator (Offline Fallback) ---
+  // --- Real Packet Ingestion Only — No Fallback ---
   function startSyntheticLiveGenerator() {
-    if (window._simInterval) return;
-    const sampleIps = ['192.168.1.15', '142.250.190.46', '1.1.1.1', '192.168.1.1', '10.0.0.5', '172.217.16.206'];
-    const sampleProtos = ['TCP', 'HTTP', 'DNS', 'UDP', 'ICMP', 'ARP', 'TLS', 'DHCP'];
-
-    window._simInterval = setInterval(() => {
-      if (!capturing) return;
-      const proto = sampleProtos[Math.floor(Math.random() * sampleProtos.length)];
-      const src = sampleIps[Math.floor(Math.random() * sampleIps.length)];
-      let dst = sampleIps[Math.floor(Math.random() * sampleIps.length)];
-      while (dst === src) dst = sampleIps[Math.floor(Math.random() * sampleIps.length)];
-
-      const p = {
-        id: nextPacketId++,
-        timestamp: Date.now() / 1000,
-        src_ip: src,
-        dst_ip: dst,
-        protocol: proto,
-        length: 54 + Math.floor(Math.random() * 450),
-        src_port: 49152 + Math.floor(Math.random() * 10000),
-        dst_port: proto === 'HTTP' ? 80 : proto === 'DNS' ? 53 : proto === 'ICMP' ? 0 : proto === 'TLS' ? 443 : proto === 'DHCP' ? 67 : 443
-      };
-      p.info = generatePacketInfo(p);
-      ingestPacket(p);
-    }, 250);
+    // Disabled: Mini-Shark strictly captures real network frames.
+    if (capturing) {
+      $('statusText').textContent = 'Live Wire Listening (Waiting for network traffic...)';
+    }
   }
 
   function generatePacketInfo(p) {
@@ -1666,13 +1948,77 @@ tr.packet-marked { background: var(--c-marked) !important; }
         }
       }
     } catch (e) {}
+
+    const sel = $('ifaceSelect');
+    sel.onchange = function() {
+      const selected = this.value;
+      $('statIface').textContent = selected;
+      if (capturing) {
+        window.restartCapture();
+      } else {
+        $('statusText').textContent = `Ready · Interface: ${selected} · Click ▶ Start`;
+      }
+    };
   }
   loadInterfaces();
 
-  // Auto-start capture on first load
-  setTimeout(() => {
-    window.startCapture();
-  }, 400);
+  // Draggable horizontal splitter between packet table & details/hex panes
+  (function initSplitter() {
+    const splitter = document.querySelector('.splitter-h');
+    const paneTable = document.querySelector('.pane-table');
+    const paneLower = document.querySelector('.pane-lower');
+    const mainPanes = document.querySelector('.main-panes');
+    if (!splitter || !paneTable || !paneLower || !mainPanes) return;
+
+    let isDragging = false;
+    splitter.addEventListener('mousedown', e => {
+      isDragging = true;
+      splitter.classList.add('dragging');
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', e => {
+      if (!isDragging) return;
+      const rect = mainPanes.getBoundingClientRect();
+      const offsetTop = e.clientY - rect.top;
+      const minH = 70;
+      const maxH = rect.height - 70;
+      if (offsetTop >= minH && offsetTop <= maxH) {
+        paneTable.style.flex = `0 0 ${offsetTop}px`;
+        paneLower.style.flex = '1 1 0%';
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        splitter.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    });
+  })();
+
+  // Wireshark Keyboard Navigation (Up/Down Arrow Keys)
+  window.addEventListener('keydown', e => {
+    if (['ArrowUp', 'ArrowDown'].includes(e.key) && selectedPacket) {
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+      e.preventDefault();
+      const rows = Array.from(document.querySelectorAll('#packetListBody tr'));
+      const currentIndex = rows.findIndex(r => r.id === `pkt-${selectedPacket.id}`);
+      if (currentIndex === -1) return;
+      const nextIndex = e.key === 'ArrowUp' ? currentIndex - 1 : currentIndex + 1;
+      if (nextIndex >= 0 && nextIndex < rows.length) {
+        const nextId = parseInt(rows[nextIndex].id.replace('pkt-', ''));
+        selectPacket(nextId);
+        rows[nextIndex].scrollIntoView({ block: 'nearest' });
+      }
+    }
+  });
+
+  // Note: Capture starts only when the user chooses an interface and clicks Start.
 })();
 </script>
 </body>

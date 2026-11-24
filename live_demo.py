@@ -177,6 +177,15 @@ def _print_dns_signal(pkt, dec, dns_alerts):
 
 def _friendly_name(iface):
     try:
+        from scapy.arch.windows import get_windows_if_list
+        for entry in get_windows_if_list():
+            guid = entry.get("guid", "")
+            net_name = entry.get("network_name") or (f"\\Device\\NPF_{guid}" if guid else "")
+            if net_name == iface or entry.get("name") == iface:
+                return entry.get("name", iface)
+    except Exception:
+        pass
+    try:
         from scapy.all import IFACES
 
         return next(

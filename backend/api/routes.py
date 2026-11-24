@@ -693,8 +693,14 @@ def _check_sniff_available(iface: Any = None) -> bool:
     if platform.system() == "Windows":
         try:
             import ctypes
-            if ctypes.windll.shell32.IsUserAnAdmin() == 0:
-                return False
+            if ctypes.windll.shell32.IsUserAnAdmin() != 0:
+                return True
+        except Exception:
+            pass
+        try:
+            from scapy.all import sniff
+            sniff(count=0, timeout=0.01, store=False)
+            return True
         except Exception:
             return False
     return True
@@ -733,69 +739,41 @@ async def stream_live(
         index = 0
         yield f"data: {json.dumps({'type':'started','interface': iface_str,'session_id': session_id,'scapy': use_scapy})}\n\n"
 
-        import random
-        sample_ips = ["192.168.1.15", "142.250.190.46", "1.1.1.1", "8.8.8.8", "10.0.0.5", "172.217.16.206", "192.168.1.1"]
-        sample_protos = ["TCP", "HTTP", "DNS", "UDP", "ICMP", "ARP"]
+        if not use_scapy:
+            yield f"data: {json.dumps({'type':'error','message': 'Administrator privileges required for Npcap raw packet capture on Windows. Run terminal as Administrator.'})}\n\n"
+            while not stop_event.is_set():
+                await asyncio.sleep(0.5)
+            return
 
         try:
             while not stop_event.is_set():
                 raw_pkts = []
-                if use_scapy:
-                    try:
-                        from scapy.all import sniff
-                        raw_pkts = await asyncio.get_event_loop().run_in_executor(
-                            None,
-                            lambda: sniff(
-                                iface=selected_iface,
-                                count=15,
-                                timeout=0.25,
-                                filter=bpf_filter if bpf_filter else None,
-                                store=True,
-                            )
+                try:
+                    from scapy.all import sniff
+                    raw_pkts = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: sniff(
+                            iface=selected_iface,
+                            count=25,
+                            timeout=0.25,
+                            filter=bpf_filter if bpf_filter else None,
+                            store=True,
                         )
-                    except Exception:
-                        use_scapy = False
-                        raw_pkts = []
+                    )
+                except Exception as exc:
+                    yield f"data: {json.dumps({'type':'error','message': f'Sniff error on {iface_str}: {exc}'})}\n\n"
+                    await asyncio.sleep(1.0)
+                    continue
 
                 if stop_event.is_set():
                     break
 
                 if not raw_pkts:
-                    # Non-blocking pause between slices
-                    await asyncio.sleep(0.2)
-                    if stop_event.is_set():
-                        break
+                    # Real network idle pause — strictly listen to the wire, NO synthetic fallback
+                    await asyncio.sleep(0.05)
+                    continue
 
-                    # Active wire frame so the Wireshark table remains responsive
-                    proto = random.choice(sample_protos)
-                    src_ip = random.choice(sample_ips[:4])
-                    dst_ip = random.choice(sample_ips[2:])
-                    while dst_ip == src_ip:
-                        dst_ip = random.choice(sample_ips)
-                    pkt_len = random.randint(64, 460)
-
-                    raw_b = bytearray([random.randint(0, 255) for _ in range(pkt_len)])
-                    raw_b[0:6] = b"\x00\x1a\x2b\x3c\x4d" + bytes([index % 256])
-                    raw_b[6:12] = b"\x00\x5f\x4e\x3d\x2c\x1b"
-                    raw_b[12:14] = b"\x08\x06" if proto == "ARP" else b"\x08\x00"
-                    if proto != "ARP":
-                        raw_b[14] = 0x45
-                        raw_b[15] = 0x00
-                        raw_b[16:18] = (pkt_len - 14).to_bytes(2, "big")
-                        raw_b[18:20] = (index % 65535).to_bytes(2, "big")
-                        raw_b[20:22] = b"\x40\x00"
-                        raw_b[22] = 64
-                        raw_b[23] = 6 if proto in ("TCP", "HTTP") else (17 if proto in ("UDP", "DNS") else 1)
-                        s_oct = [int(x) for x in src_ip.split(".")]
-                        d_oct = [int(x) for x in dst_ip.split(".")]
-                        raw_b[26:30] = bytes(s_oct)
-                        raw_b[30:34] = bytes(d_oct)
-                    raw = bytes(raw_b)
-                    sp_list = [type("MockPkt", (), {"time": time.time(), "__bytes__": lambda s, b=raw: b})()]
-                else:
-                    sp_list = raw_pkts
-
-                for sp in sp_list:
+                for sp in raw_pkts:
                     if stop_event.is_set():
                         break
                     try:
@@ -824,16 +802,39 @@ async def stream_live(
                             info = f"Seq={tcp_seq} [{_tcp_flags(tcp_flags_val)}]"
                         if layer.name == "UDP" and not src_port:
                             src_port, dst_port, protocol = str(f.get("src_port", "")), str(f.get("dst_port", "")), "UDP"
+                            udp_len = f.get("length", "")
+                            info = f"{src_port} → {dst_port} Len={udp_len}" if udp_len else f"{src_port} → {dst_port}"
                         if layer.name == "DNS":
                             protocol = "DNS"
                             qs = f.get("questions", [])
-                            info = f"{'Response' if f.get('response') else 'Query'}: {qs[0].get('name', '') if qs else ''}"
+                            qname = qs[0].get("name", "") if qs else ""
+                            rtype = "Response" if f.get("response") else "Query"
+                            if src_port == "5353" or dst_port == "5353":
+                                protocol = "MDNS"
+                                info = f"mDNS {rtype}: {qname}" if qname else f"mDNS {rtype}"
+                            else:
+                                info = f"{'Response' if f.get('response') else 'Query'}: {qname}"
                         if layer.name == "HTTP":
                             protocol = "HTTP"
                             info = f.get("start_line", "")
-                        if layer.name == "ICMP":
-                            protocol = "ICMP"
-                            info = f"Type={f.get('type', '')} Code={f.get('code', '')}"
+                        if layer.name in ("ICMP", "ICMPv6"):
+                            t_val = f.get("type", 0)
+                            c_val = f.get("code", 0)
+                            icmp_desc = {
+                                0: "Echo (ping) reply",
+                                8: "Echo (ping) request",
+                                3: "Destination unreachable",
+                                11: "Time exceeded",
+                                133: "Router Solicitation",
+                                134: "Router Advertisement",
+                                135: "Neighbor Solicitation",
+                                136: "Neighbor Advertisement",
+                            }.get(t_val, f"Type={t_val}")
+                            protocol = "ICMPv6" if (t_val >= 128 or layer.name == "ICMPv6") else "ICMP"
+                            if t_val in (0, 8):
+                                info = f"{icmp_desc} id=0x{ip_id:04x}"
+                            else:
+                                info = f"{icmp_desc} (Code={c_val})"
                             ip_id = f.get("id", ip_id)
                         if layer.name == "ARP":
                             protocol = "ARP"
@@ -849,7 +850,7 @@ async def stream_live(
                     try:
                         sp_int = int(src_port) if src_port else 0
                         dp_int = int(dst_port) if dst_port else 0
-                        if sp_int in (9000, 8001, 5173) or dp_int in (9000, 8001, 5173):
+                        if sp_int in (8000, 8001, 8002, 8003, 8004, 9000, 9001, 9002, 5173) or dp_int in (8000, 8001, 8002, 8003, 8004, 9000, 9001, 9002, 5173):
                             continue
                     except ValueError:
                         pass
@@ -859,8 +860,8 @@ async def stream_live(
                         "index": index,
                         "timestamp": round(ts, 6),
                         "length": len(raw),
-                        "src_ip": src_ip or ("192.168.1.15" if protocol != "ARP" else ""),
-                        "dst_ip": dst_ip or ("142.250.190.46" if protocol != "ARP" else ""),
+                        "src_ip": src_ip or "",
+                        "dst_ip": dst_ip or "",
                         "src_port": src_port,
                         "dst_port": dst_port,
                         "protocol": protocol or "Ethernet",

@@ -374,6 +374,7 @@ def build_default_registry() -> DissectorRegistry:
     registry.register("ipproto", IPPROTO_ICMPV6, "ICMPv6", icmp)
 
     registry.register("port", 53, "DNS", dns)
+    registry.register("port", 5353, "DNS", dns)
     registry.register("port", 80, "HTTP", http)
     registry.register("port", 8080, "HTTP", http)
     registry.register("port", 8000, "HTTP", http)
